@@ -6,38 +6,77 @@ import random
 import argparse
 import uuid
 import datetime
-from PIL import Image, ImageDraw
+import traceback
+
+# 尝试导入依赖，增强脚本通用性
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
+try:
+    import torch
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
 
 def log(msg):
-    """带时间戳的标准日志输出，模拟训练日志"""
+    """带时间戳的标准日志输出，AutoTrainer 会捕获 stdout"""
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # flush=True 至关重要，确保日志能实时传输到 AutoTrainer 的 Web 界面
     print(f"[{timestamp}] [MockTrain] {msg}", flush=True)
 
-def generate_result_image(text, filename="result.png"):
-    """生成包含随机文本的图片"""
-    img = Image.new('RGB', (600, 200), color=(73, 109, 137))
+def generate_result_image(task_name, info_text, filename="result.png"):
+    """生成包含任务名和随机文本的图片"""
+    if not HAS_PIL:
+        log("WARNING: PIL not installed, skipping image generation.")
+        return
+
+    width, height = 800, 400
+    # 背景色：深蓝色
+    img = Image.new('RGB', (width, height), color=(40, 44, 52))
     d = ImageDraw.Draw(img)
-    # 简单的默认绘制
-    d.text((20, 80), text, fill=(255, 255, 0))
-    d.text((20, 150), f"Generated at: {datetime.datetime.now()}", fill=(200, 200, 200))
-    img.save(filename)
-    log(f"Artifact saved to {os.path.abspath(filename)}")
+    
+    # 简单的排版
+    # 绘制任务名称 (黄色高亮)
+    d.text((20, 20), "AutoTrainer Result Artifact", fill=(100, 100, 100))
+    d.text((20, 50), f"TASK: {task_name}", fill=(255, 215, 0)) # Gold color
+    
+    # 绘制详细信息
+    d.text((20, 100), info_text, fill=(200, 200, 200))
+    
+    # 绘制时间戳
+    d.text((20, height - 30), f"Generated at: {datetime.datetime.now()}", fill=(100, 100, 100))
+    
+    # 绘制一个随机图形增加视觉差异
+    color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+    d.rectangle([width-100, height-100, width-20, height-20], fill=color)
+
+    try:
+        img.save(filename)
+        log(f"Artifact saved to {os.path.abspath(filename)}")
+    except Exception as e:
+        log(f"Failed to save image: {e}")
 
 def simulate_gpu_load(size_gb, duration):
     """核心逻辑：占用显存并等待"""
-    import torch
-    
+    if not HAS_TORCH:
+        log("CRITICAL WARNING: PyTorch not installed! Running in CPU-only dummy mode.")
+        time.sleep(duration)
+        return
+
     if not torch.cuda.is_available():
         log("CRITICAL WARNING: CUDA not available! Running on CPU (Memory test skipped).")
+        time.sleep(duration)
     else:
+        # 获取环境变量中的 CUDA 设定
         device_id = os.environ.get("CUDA_VISIBLE_DEVICES", "Unknown")
         log(f"Visible GPU Devices: {device_id}")
         log(f"Attempting to allocate {size_gb}GB VRAM...")
         
         try:
             # 1GB float32 约等于 2.5 * 10^8 个元素 (1元素=4bytes)
-            # 4GB = 10^9 elements
-            # 使用 empty 不初始化数据速度更快，ones 初始化会慢一些但更能模拟负载
             num_elements = int(size_gb * (1024**3) / 4)
             
             # 分配大张量
@@ -46,40 +85,47 @@ def simulate_gpu_load(size_gb, duration):
             log(f"SUCCESS: Allocated {size_gb}GB VRAM on GPU. Memory is now occupied.")
             log(f"Tensor shape: {tensor.shape}, Device: {tensor.device}")
             
-            # 模拟一些计算 (矩阵乘法)，让显卡利用率(Util)也动起来，不仅仅是显存(Mem)
-            # 做一个小规模运算防止卡死，主要是为了让 nvidia-smi 看到 usage
             log("Starting dummy computations to spike GPU utilization...")
             start_time = time.time()
+            
+            # 模拟训练循环
+            step = 0
             while time.time() - start_time < duration:
-                # 做一点点运算
-                _ = tensor[:1000] * 2.0 
+                step += 1
+                # 做矩阵乘法让 GPU Util 动起来
+                if step % 10 == 0:
+                     _ = torch.matmul(tensor[:1000], tensor[:1000])
                 
-                # 模拟 tqdm 进度条日志（测试 AutoTrainer 的日志过滤功能）
+                # 模拟 tqdm 进度条日志 (AutoTrainer 界面会过滤掉这些高频刷新，但邮件会保留最后几行)
                 elapsed = int(time.time() - start_time)
-                sys.stdout.write(f"\rTraining: {elapsed}/{duration}s | Loss: {random.random():.4f} | 12.5it/s")
+                # 使用 \r 回车符模拟进度条更新
+                sys.stdout.write(f"\rEpoch 1/1 | Step {step} | Time: {elapsed}/{duration}s | Loss: {random.random():.4f}")
                 sys.stdout.flush()
                 time.sleep(0.5)
             
-            print() # 换行
+            print() # 进度条结束后换行
             
         except RuntimeError as e:
-            log(f"CUDA Error: {e}")
-            # 如果是测试 OOM 模式，这里会抛出异常
+            if "out of memory" in str(e).lower():
+                log("Caught Expected CUDA OOM Exception inside script.")
             raise e
 
 def main():
     parser = argparse.ArgumentParser(description="AutoTrainer Mock Script")
-    parser.add_argument("--mode", type=str, default="normal", choices=["normal", "oom", "error"], help="运行模式: normal(正常), oom(模拟显存溢出), error(模拟代码报错)")
-    parser.add_argument("--mem", type=float, default=4.0, help="占用显存大小(GB)")
+    # [新增] 接收任务名称
+    parser.add_argument("--name", type=str, default="Unnamed_Task", help="任务名称，由AutoTrainer传入")
+    parser.add_argument("--mode", type=str, default="normal", choices=["normal", "oom", "error"], help="运行模式")
+    parser.add_argument("--mem", type=float, default=2.0, help="占用显存大小(GB)")
     parser.add_argument("--min_time", type=int, default=5, help="最小运行时间(s)")
-    parser.add_argument("--max_time", type=int, default=20, help="最大运行时间(s)")
+    parser.add_argument("--max_time", type=int, default=15, help="最大运行时间(s)")
+    
     args = parser.parse_args()
 
     log("=== Simulation Started ===")
+    log(f"Task Name: {args.name}")
     log(f"Mode: {args.mode.upper()}")
     
-    # 1. 模拟环境检查
-    # 如果 AutoTrainer 替换了文件，我们可以检查某个标记文件是否存在
+    # 1. 模拟环境检查 (测试文件替换功能)
     if os.path.exists("config_swapped_marker.txt"):
         log("Detected file swap: config_swapped_marker.txt exists.")
 
@@ -88,33 +134,33 @@ def main():
         run_duration = random.randint(args.min_time, args.max_time)
         log(f"Task scheduled for {run_duration} seconds.")
 
-        # 3. 不同的测试模式
+        # 3. 执行逻辑
         if args.mode == "oom":
             log("Simulating Out Of Memory crash...")
-            # 尝试分配 80GB 显存，绝大多数单卡都会爆
+            # 尝试分配极大显存
             simulate_gpu_load(80, run_duration) 
             
         elif args.mode == "error":
             log("Simulating Runtime Error...")
             time.sleep(2)
-            simulate_gpu_load(1.0, 2) # 先正常跑一会
+            simulate_gpu_load(0.5, 2) 
             log("Injecting fatal error now!")
             raise ValueError("Simulated unexpected crash for testing retry logic!")
             
         else: # Normal
             simulate_gpu_load(args.mem, run_duration)
             
-            # 4. 生成结果
-            result_text = f"Task Completed.\nID: {str(uuid.uuid4())[:8]}\nMode: {args.mode}"
-            generate_result_image(result_text, filename="result.png")
-            log("Main process finished successfully.")
+            # 4. 成功结束，生成结果
+            result_info = f"ID: {str(uuid.uuid4())[:8]}\nMode: {args.mode}\nMem: {args.mem}GB\nDuration: {run_duration}s"
+            # 传入任务名用于绘图
+            generate_result_image(args.name, result_info, filename=f"result_{args.name}.png")
+            log(f"Task '{args.name}' finished successfully.")
 
     except Exception as e:
         log(f"Process crashed with error: {e}")
-        # 打印详细堆栈供 AutoTrainer 捕获
-        import traceback
+        # 打印详细堆栈供 AutoTrainer 捕获并发送邮件
         traceback.print_exc()
-        sys.exit(1) # 非0退出码
+        sys.exit(1) # [关键] 非0退出码通知 AutoTrainer 任务失败
 
 if __name__ == "__main__":
     main()
