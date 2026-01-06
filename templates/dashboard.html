@@ -280,7 +280,7 @@
                                 <input type="text" class="form-control" v-model="swap.target" placeholder="Target Path">
                                 <button type="button" class="btn btn-outline-danger" @click="form.swaps.splice(idx, 1)">×</button>
                             </div>
-                            <div v-if="form.swaps.length === 0" class="text-muted small">无文件替换操作 (通常用于临时修改代码文件)</div>
+                            <div v-if="form.swaps.length === 0" class="text-muted small">无文件替换操作 (用于临时修改代码文件。启动前，会先把对应目标文件换为原文件。运行完毕后，会自动恢复运行前的样子。)</div>
                         </div>
 
                         <div class="modal-footer px-0 pb-0 pt-3 border-top">

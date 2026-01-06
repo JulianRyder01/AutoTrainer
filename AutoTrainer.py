@@ -20,9 +20,9 @@ from enum import Enum
 warnings.filterwarnings("ignore", category=FutureWarning, module="pynvml")
 
 import pynvml
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, JSON, desc
 from sqlalchemy.orm import sessionmaker, declarative_base
 
@@ -85,6 +85,26 @@ HTML_TEMPLATE_CONTENT = r"""
             margin: auto;
         }
         
+        /* [新增] 日志查看弹窗特别样式 */
+        .log-modal-content {
+            max-width: 90%;
+            height: 85vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .log-viewer {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            padding: 15px;
+            overflow-y: auto;
+            flex-grow: 1;
+            white-space: pre-wrap;
+            border-bottom-left-radius: 8px;
+            border-bottom-right-radius: 8px;
+            font-size: 0.9rem;
+        }
+
         .btn-group-xs > .btn, .btn-xs {
             padding: .25rem .4rem;
             font-size: .875rem;
@@ -207,6 +227,11 @@ HTML_TEMPLATE_CONTENT = r"""
                                     </td>
                                     <td>
                                         <div class="d-flex flex-wrap gap-1">
+                                            <!-- [新增] 日志查看按钮 (有日志路径即可看) -->
+                                            <button v-if="task.log_file_path || task.status === 'running'" class="btn btn-sm btn-outline-dark" @click="viewLog(task.id)" title="查看日志">
+                                                📜 日志
+                                            </button>
+
                                             <!-- 开始按钮 (仅 Paused) -->
                                             <button v-if="task.status === 'paused'" class="btn btn-sm btn-success" @click="startTask(task.id)">
                                                 ▶ 开始
@@ -329,6 +354,25 @@ HTML_TEMPLATE_CONTENT = r"""
             </div>
         </div>
 
+        <!-- [新增] 日志查看弹窗 -->
+        <div class="custom-modal-backdrop" v-if="showLogModal" @click.self="showLogModal = false">
+            <div class="custom-modal-content log-modal-content">
+                <div class="modal-header p-3 border-bottom d-flex justify-content-between">
+                    <h5 class="modal-title mb-0">📜 运行日志 (Tail) - Task #{{ currentLogTaskId }}</h5>
+                    <button type="button" class="btn-close" @click="showLogModal = false"></button>
+                </div>
+                <div class="log-viewer" ref="logContainer">
+                    <div v-if="logLoading" class="text-center text-muted">加载中...</div>
+                    <div v-else-if="logContent">{{ logContent }}</div>
+                    <div v-else class="text-center text-muted">暂无日志内容</div>
+                </div>
+                <div class="modal-footer p-2 bg-light border-top">
+                    <button class="btn btn-sm btn-secondary" @click="fetchLog(currentLogTaskId)">刷新</button>
+                    <button class="btn btn-sm btn-primary" @click="showLogModal = false">关闭</button>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script>
@@ -340,7 +384,11 @@ HTML_TEMPLATE_CONTENT = r"""
                 gpus: [],
                 gpu_threshold: 0,
                 showModal: false,
-                editingId: null, // 如果不为 null，表示正在编辑该 ID
+                showLogModal: false, // [新增]
+                logContent: '',      // [新增]
+                logLoading: false,   // [新增]
+                currentLogTaskId: null, // [新增]
+                editingId: null, 
                 form: {
                     name: '',
                     command: '',
@@ -397,6 +445,30 @@ HTML_TEMPLATE_CONTENT = r"""
                         };
                     }
                     this.showModal = true;
+                },
+                // [新增] 查看日志
+                viewLog(taskId) {
+                    this.currentLogTaskId = taskId;
+                    this.showLogModal = true;
+                    this.logContent = '';
+                    this.fetchLog(taskId);
+                },
+                // [新增] 获取日志内容
+                fetchLog(taskId) {
+                    this.logLoading = true;
+                    axios.get(`/api/tasks/${taskId}/log`).then(res => {
+                        this.logContent = res.data.content;
+                        // 自动滚动到底部
+                        this.$nextTick(_ => {
+                            if(this.$refs.logContainer) {
+                                this.$refs.logContainer.scrollTop = this.$refs.logContainer.scrollHeight;
+                            }
+                        });
+                    }).catch(err => {
+                        this.logContent = "无法获取日志或日志文件不存在。\n" + (err.response?.data?.msg || err.message);
+                    }).finally(_ => {
+                        this.logLoading = false;
+                    });
                 },
                 addSwap() {
                     this.form.swaps.push({source: '', target: ''});
@@ -475,12 +547,12 @@ HTML_TEMPLATE_CONTENT = r"""
 SQLALCHEMY_DATABASE_URL = "sqlite:///./autotrainer_tasks.db"
 
 # Eminder 配置
-EMINDER_API_URL = "http://localhost:8421/api/send-now"
+EMINDER_API_URL = "http://0.0.0.0:8421/api/send-now"
 RECEIVER_EMAIL = "892640097@qq.com"
 TEMPLATE_TYPE = "training_report"
 
 # GPU 配置
-GPU_MEMORY_THRESHOLD = 2000  # MB, 低于此值视为显卡空闲
+GPU_MEMORY_THRESHOLD = 20000  # MB, 低于此值视为显卡空闲
 GPU_CHECK_INTERVAL = 5       # 秒, 轮询间隔
 
 # 日志配置
@@ -654,6 +726,11 @@ class ArtifactCollector:
 class EminderClient:
     @staticmethod
     def send_report(subject: str, content: str, attachments: List[str] = None):
+        """
+        发送邮件报告。
+        [Requirement 1 Refinement]: 该方法内部已经处理了异常，
+        但调用方仍建议使用 try-except 包裹，以应对不可预见的错误。
+        """
         template_data = {
             "run_name": subject,
             "dataset": "AutoTrainer",
@@ -692,7 +769,8 @@ class EminderClient:
             logger.error(f"Failed to connect to Eminder: {e}")
         finally:
             for f in opened_files:
-                f.close()
+                try: f.close() 
+                except: pass
 
 # ==============================================================================
 # 4. 核心调度 Worker
@@ -775,15 +853,19 @@ class TrainingWorker:
         # 解决 Windows cmd "conda activate && python" 执行完 activate 直接退出的 bug
         cmd_to_run = task.command
         if sys.platform == "win32":
-            # 如果包含 "conda activate" 且前面没有 "call"，则自动补全 "call"
-            # 简单替换：将 "conda activate" 替换为 "call conda activate" (防止已经是 call 的情况，稍作判断)
-            # 这里做一个比较鲁棒的替换：把 "conda activate" 前面没有 "call " 的地方替换
-            # 为简单起见，如果包含 && conda activate，则大概率需要 call
+            # Windows 修复
             if "conda activate" in cmd_to_run and "call conda activate" not in cmd_to_run:
                 logger.info("Detect Windows conda activate: Auto-prepending 'call' to fix batch exit issue.")
                 cmd_to_run = cmd_to_run.replace("conda activate", "call conda activate")
+        else:
+            # [关键修复] Linux 修复: "Run 'conda init' before 'conda activate'"
+            # subprocess 在 Linux 上以非交互模式启动 bash，不会自动加载 .bashrc。
+            # 解决方案：手动执行 conda 的 shell hook 脚本来注册 'conda' 函数。
+            if "conda activate" in cmd_to_run:
+                logger.info("Detect Linux conda activate: Prepending conda shell hook to fix 'conda init' error.")
+                # 显式加载 Conda Shell Hook
+                cmd_to_run = f"eval \"$(conda shell.bash hook)\" && {cmd_to_run}"
         
-        # 准备 Shell 可执行文件 (关键：支持 conda activate && python ...)
         shell_executable = "/bin/bash" if sys.platform != "win32" and os.path.exists("/bin/bash") else None
         
         log_buffer_system_err = [] # [修改] 仅用于捕获系统级异常，如 spawn 失败
@@ -803,10 +885,15 @@ class TrainingWorker:
             if task.file_swaps:
                 backups = FileManager.apply_swaps(task.file_swaps)
             
-            EminderClient.send_report(
-                f"任务开始: {task.name}",
-                f"Task ID: {task.id}\nGPUs: {cuda_str}\nWorkDir: {task.working_dir}\nCommand:\n{cmd_to_run}"
-            )
+            # [修改点] 需求①：确保 Eminder 失败不影响任务启动。
+            # 虽然 EminderClient 内部有 catch，但这里再次包裹，防止 send_report 抛出未捕获的异常（如参数错误）中断流程。
+            try:
+                EminderClient.send_report(
+                    f"任务开始: {task.name}",
+                    f"Task ID: {task.id}\nGPUs: {cuda_str}\nWorkDir: {task.working_dir}\nCommand:\n{cmd_to_run}"
+                )
+            except Exception as eminder_e:
+                logger.error(f"Eminder Start-Notification Failed (Ignored for robustness): {eminder_e}")
             
             env = os.environ.copy()
             env["CUDA_VISIBLE_DEVICES"] = cuda_str
@@ -880,43 +967,45 @@ class TrainingWorker:
             final_log_lines = log_buffer_for_email + log_buffer_system_err
             log_str = "".join(final_log_lines[-300:])
             
-            # [关键修复] 将邮件发送逻辑移动到 finally 块中（with open 块之外）
-            # 此时 Log 文件已关闭并落盘，EminderClient 读取时不会读到空文件
-            if exit_code == 0:
-                task.status = TaskStatus.COMPLETED
-                task.retry_count = 0
-                db_session.commit()
-                EminderClient.send_report(
-                    f"任务成功: {task.name}",
-                    f"Duration: {task.finished_at - task.started_at}\n\nLogs Tail:\n{log_str}",
-                    attachments=attachments # [关键修复] 使用完整的附件列表
-                )
-            elif task.status == TaskStatus.STOPPED:
-                EminderClient.send_report(
-                    f"任务被手动停止: {task.name}",
-                    f"User interrupted task.\n\nLogs Tail:\n{log_str}",
-                    attachments=attachments
-                )
-            else:
-                can_retry = task.retry_count < task.max_retries
-                
-                if can_retry:
-                    task.retry_count += 1
-                    task.status = TaskStatus.PENDING 
-                    task.pid = None
+            # [修改点] 需求①：确保所有状态报告的 Eminder 调用都包裹在 try-except 中
+            try:
+                if exit_code == 0:
+                    task.status = TaskStatus.COMPLETED
+                    task.retry_count = 0
+                    db_session.commit()
                     EminderClient.send_report(
-                        f"任务出现错误，正在重试 ({task.retry_count}/{task.max_retries}): {task.name}",
-                        f"Detected Error/OOM. Re-queueing task.\nExit Code: {exit_code}\nOOM Detected: {oom_detected}\n\nLogs Tail:\n{log_str}",
+                        f"任务成功: {task.name}",
+                        f"Duration: {task.finished_at - task.started_at}\n\nLogs Tail:\n{log_str}",
                         attachments=attachments
                     )
-                    logger.warning(f"Task {task.id} failed (code {exit_code}). Retrying {task.retry_count}/{task.max_retries}")
+                elif task.status == TaskStatus.STOPPED:
+                    EminderClient.send_report(
+                        f"任务被手动停止: {task.name}",
+                        f"User interrupted task.\n\nLogs Tail:\n{log_str}",
+                        attachments=attachments
+                    )
                 else:
-                    task.status = TaskStatus.FAILED
-                    EminderClient.send_report(
-                        f"任务最终失败 (次数: {task.retry_count}): {task.name}",
-                        f"Max retries reached.\nExit Code: {exit_code}\nOOM: {oom_detected}\n\nLogs Tail:\n{log_str}",
-                        attachments=attachments
-                    )
+                    can_retry = task.retry_count < task.max_retries
+                    
+                    if can_retry:
+                        task.retry_count += 1
+                        task.status = TaskStatus.PENDING 
+                        task.pid = None
+                        EminderClient.send_report(
+                            f"任务出现错误，正在重试 ({task.retry_count}/{task.max_retries}): {task.name}",
+                            f"Detected Error/OOM. Re-queueing task.\nExit Code: {exit_code}\nOOM Detected: {oom_detected}\n\nLogs Tail:\n{log_str}",
+                            attachments=attachments
+                        )
+                        logger.warning(f"Task {task.id} failed (code {exit_code}). Retrying {task.retry_count}/{task.max_retries}")
+                    else:
+                        task.status = TaskStatus.FAILED
+                        EminderClient.send_report(
+                            f"任务最终失败 (次数: {task.retry_count}): {task.name}",
+                            f"Max retries reached.\nExit Code: {exit_code}\nOOM: {oom_detected}\n\nLogs Tail:\n{log_str}",
+                            attachments=attachments
+                        )
+            except Exception as eminder_end_e:
+                logger.error(f"Eminder End-Notification Failed (Ignored): {eminder_end_e}")
             
             db_session.commit()
 
@@ -1011,6 +1100,41 @@ def get_dashboard_stats():
         ).limit(50).all()
         
         return {"stats": stats, "gpus": gpu_data, "tasks": tasks}
+    finally:
+        db.close()
+
+# [新增 API] 获取任务日志内容
+# 需求②：为 dashboard 提供日志数据
+@app.get("/api/tasks/{tid}/log")
+def get_task_log(tid: int):
+    db = SessionLocal()
+    try:
+        task = db.get(Task, tid)
+        if not task:
+            return JSONResponse(status_code=404, content={"msg": "Task not found"})
+        
+        log_path = task.log_file_path
+        
+        if not log_path or not os.path.exists(log_path):
+            return JSONResponse(status_code=404, content={"msg": "Log file not created yet or missing"})
+            
+        # 安全起见，只读取最后 1MB 数据，避免日志过大撑爆浏览器
+        max_bytes = 1024 * 1024  # 1MB
+        file_size = os.path.getsize(log_path)
+        
+        try:
+            with open(log_path, 'rb') as f:
+                if file_size > max_bytes:
+                    f.seek(file_size - max_bytes)
+                    content_bytes = f.read(max_bytes)
+                    # 处理截断的 utf-8 字符
+                    content = content_bytes.decode('utf-8', errors='ignore')
+                    content = "[Warning: Log too large, showing last 1MB only]\n" + content
+                else:
+                    content = f.read().decode('utf-8', errors='ignore')
+            return {"content": content}
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"msg": f"Error reading log: {str(e)}"})
     finally:
         db.close()
 

@@ -237,3 +237,30 @@ pip install python-multipart
 2026-01-06 16:27:23,454 - AutoTrainer - INFO - Email sent successfully.
 2026-01-06 16:37:30,362 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
 2026-01-06 16:37:30,364 - AutoTrainer - INFO - Dashboard template initialized/updated.
+2026-01-06 16:39:40,652 - AutoTrainer - INFO - Start Task 3 'Baseline1 (Copy) (Copy)': GPUs 0
+2026-01-06 16:39:40,655 - AutoTrainer - INFO - Swapped: D:\TemporaryAkina\test.md -> D:\TemporaryAkina\ohyear\1.py
+2026-01-06 16:39:40,655 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: Baseline1 (Copy) (Copy)
+2026-01-06 16:39:44,523 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:39:50,963 - AutoTrainer - INFO - Restored: D:\TemporaryAkina\ohyear\1.py
+2026-01-06 16:39:50,966 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
+2026-01-06 16:39:50,967 - AutoTrainer - INFO - Sending email to Eminder: 任务出现错误，正在重试 (1/1): Baseline1 (Copy) (Copy)
+2026-01-06 16:39:54,578 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:39:54,579 - AutoTrainer - WARNING - Task 3 failed (code 1). Retrying 1/1
+2026-01-06 16:39:59,631 - AutoTrainer - INFO - Start Task 3 'Baseline1 (Copy) (Copy)': GPUs 0
+2026-01-06 16:39:59,634 - AutoTrainer - INFO - Swapped: D:\TemporaryAkina\test.md -> D:\TemporaryAkina\ohyear\1.py
+2026-01-06 16:39:59,634 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: Baseline1 (Copy) (Copy)
+2026-01-06 16:40:03,436 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:40:09,712 - AutoTrainer - INFO - Restored: D:\TemporaryAkina\ohyear\1.py
+2026-01-06 16:40:09,713 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
+2026-01-06 16:40:09,713 - AutoTrainer - INFO - Sending email to Eminder: 任务最终失败 (次数: 1): Baseline1 (Copy) (Copy)
+2026-01-06 16:40:13,537 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:41:48,855 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 16:41:48,857 - AutoTrainer - INFO - Dashboard template initialized/updated.
+2026-01-06 16:42:54,022 - AutoTrainer - INFO - Start Task 3 'Baseline1 (Copy) (Copy)': GPUs 0
+2026-01-06 16:42:54,026 - AutoTrainer - INFO - Swapped: D:\TemporaryAkina\test.md -> D:\TemporaryAkina\ohyear\1.py
+2026-01-06 16:42:54,026 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: Baseline1 (Copy) (Copy)
+2026-01-06 16:42:57,420 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:43:09,280 - AutoTrainer - INFO - Restored: D:\TemporaryAkina\ohyear\1.py
+2026-01-06 16:43:09,285 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
+2026-01-06 16:43:09,295 - AutoTrainer - INFO - Sending email to Eminder: 任务成功: Baseline1 (Copy) (Copy)
+2026-01-06 16:43:13,054 - AutoTrainer - INFO - Email sent successfully.
