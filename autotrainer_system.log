@@ -1,0 +1,54 @@
+2026-01-06 13:51:17,952 - AutoTrainer - INFO - Worker thread started.
+2026-01-06 13:51:17,960 - fastapi - ERROR - Form data requires "python-multipart" to be installed. 
+You can install "python-multipart" with: 
+
+pip install python-multipart
+
+2026-01-06 13:51:48,990 - AutoTrainer - INFO - Worker thread started.
+2026-01-06 14:01:28,458 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 14:04:40,595 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 14:04:55,428 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 14:08:47,226 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 14:14:19,005 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 14:14:19,008 - AutoTrainer - INFO - Dashboard template initialized.
+2026-01-06 14:18:44,665 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 14:18:44,668 - AutoTrainer - INFO - Dashboard template initialized/updated.
+2026-01-06 14:21:30,738 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 14:21:30,741 - AutoTrainer - INFO - Dashboard template initialized/updated.
+2026-01-06 14:21:30,796 - AutoTrainer - INFO - === STARTING TASK 1: 原神 on GPUs 0 ===
+2026-01-06 14:21:30,797 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: 原神
+2026-01-06 14:21:32,942 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 14:21:32,984 - AutoTrainer - INFO - Sending email to Eminder: 任务出现错误，正在重试 (1/1): 原神
+2026-01-06 14:21:35,085 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 14:21:35,086 - AutoTrainer - WARNING - Task 1 failed (code 1). Retrying 1/1
+2026-01-06 14:21:40,130 - AutoTrainer - INFO - === STARTING TASK 1: 原神 on GPUs 0 ===
+2026-01-06 14:21:40,130 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: 原神
+2026-01-06 14:21:42,252 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 14:21:42,299 - AutoTrainer - INFO - Sending email to Eminder: 任务最终失败 (次数: 1): 原神
+2026-01-06 14:21:44,389 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 14:21:49,456 - AutoTrainer - INFO - === STARTING TASK 2: Baseline2 on GPUs 0 ===
+2026-01-06 14:21:49,456 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: Baseline2
+2026-01-06 14:21:51,544 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 14:21:51,618 - AutoTrainer - INFO - Sending email to Eminder: 任务出现错误，正在重试 (1/1): Baseline2
+2026-01-06 14:21:53,732 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 14:21:53,734 - AutoTrainer - WARNING - Task 2 failed (code 1). Retrying 1/1
+2026-01-06 14:21:58,778 - AutoTrainer - INFO - === STARTING TASK 2: Baseline2 on GPUs 0 ===
+2026-01-06 14:21:58,779 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: Baseline2
+2026-01-06 14:22:00,896 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 14:22:00,955 - AutoTrainer - INFO - Sending email to Eminder: 任务最终失败 (次数: 1): Baseline2
+2026-01-06 14:22:03,028 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 14:23:23,220 - AutoTrainer - INFO - === STARTING TASK 3: 1 on GPUs 0 ===
+2026-01-06 14:23:23,220 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: 1
+2026-01-06 14:23:25,329 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 14:25:15,857 - AutoTrainer - INFO - Sending email to Eminder: 任务成功: 1
+2026-01-06 14:25:17,966 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 14:26:03,073 - AutoTrainer - INFO - === STARTING TASK 4: 01061 on GPUs 0 ===
+2026-01-06 14:26:03,073 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: 01061
+2026-01-06 14:26:16,527 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 14:26:40,649 - AutoTrainer - INFO - Sending email to Eminder: 任务成功: 01061
+2026-01-06 14:26:51,616 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 14:26:56,662 - AutoTrainer - INFO - === STARTING TASK 5: 01062 on GPUs 0 ===
+2026-01-06 14:26:56,663 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: 01062
+2026-01-06 14:27:10,380 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 14:27:29,340 - AutoTrainer - INFO - Sending email to Eminder: 任务成功: 01062
+2026-01-06 14:27:38,091 - AutoTrainer - INFO - Email sent successfully.
