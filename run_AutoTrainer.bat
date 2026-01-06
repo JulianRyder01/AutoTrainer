@@ -1,0 +1,96 @@
+@echo off
+setlocal EnableDelayedExpansion
+
+set "ENV_NAME=AutoTrainer"
+set "PYTHON_VERSION=3.10"
+set "ROOT_DIR=%~dp0"
+set "BACKEND_SCRIPT=%ROOT_DIR%AutoTrainer.py"
+set "REQ_FILE=%ROOT_DIR%requirements.txt"
+
+set "BACKEND_PORT=8080"
+
+title AutoTrainer Launcher
+
+echo.
+echo ===================================================
+echo       AutoTrainer One-Click Launcher
+echo ===================================================
+echo.
+
+call conda --version >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] 'conda' command not found.
+    echo Please ensure Anaconda or Miniconda is installed and added to your PATH.
+    echo.
+    pause
+    exit /b 1
+)
+
+:: ---------------------------------------------------------
+:: 2. Check or Create Conda Environment
+:: ---------------------------------------------------------
+echo [INFO] Checking Conda environment '%ENV_NAME%'
+
+call conda info --envs | findstr /C:"%ENV_NAME% " >nul 2>&1
+if %ERRORLEVEL% EQU 0 (
+    echo [INFO] Environment '%ENV_NAME%' found.
+) else (
+    echo [INFO] Environment not found. Creating '%ENV_NAME%' (Python %PYTHON_VERSION%.
+    echo ---------------------------------------------------
+    call conda create -n %ENV_NAME% python=%PYTHON_VERSION% -y
+
+    echo ---------------------------------------------------
+    echo [INFO] Environment created.
+)
+
+:: ---------------------------------------------------------
+:: 3. Activate Environment (Current Session)
+:: ---------------------------------------------------------
+echo [INFO] Activating environment
+call conda activate %ENV_NAME% 2>nul
+if %ERRORLEVEL% NEQ 0 (
+    call activate %ENV_NAME% 2>nul
+    if %ERRORLEVEL% NEQ 0 (
+        echo [ERROR] Could not activate environment '%ENV_NAME%'.
+        echo Please try running 'conda activate %ENV_NAME%' manually to debug.
+        pause
+        exit /b 1
+    )
+)
+
+if exist "%REQ_FILE%" (
+    echo [INFO] Checking dependencies - requirements.txt
+    pip install -r "%REQ_FILE%"
+    if %ERRORLEVEL% NEQ 0 (
+        echo [ERROR] Failed to install dependencies.
+        pause
+        exit /b 1
+    )
+) else (
+    echo [WARNING] requirements.txt not found, skipping installation.
+)
+
+:: ---------------------------------------------------------
+:: 4. Launch Services
+:: ---------------------------------------------------------
+echo.
+echo [INFO] Starting AutoTrainer Services
+
+:: Launch Backend
+if exist "%BACKEND_SCRIPT%" (
+    echo [1/2] Launching Backend - Port: %BACKEND_PORT%
+    start "AutoTrainer Backend Service" cmd /k "call conda activate %ENV_NAME% && python "%BACKEND_SCRIPT%" --port %BACKEND_PORT%"
+)
+
+
+echo.
+echo ===================================================
+echo       Launch Complete!
+echo ===================================================
+echo.
+echo  [Link]  http://127.0.0.1:%BACKEND_PORT%/
+echo.
+echo  Please do not close the two new popup windows.
+echo  You can safely close this launcher window now.
+echo.
+pause
