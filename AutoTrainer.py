@@ -771,13 +771,27 @@ class TrainingWorker:
         env["AUTOTRAINER_TASK_NAME"] = str(task.name)
         env["AUTOTRAINER_TASK_ID"] = str(task.id)
         
+        # [关键逻辑] Windows 命令预处理
+        # 解决 Windows cmd "conda activate && python" 执行完 activate 直接退出的 bug
+        cmd_to_run = task.command
+        if sys.platform == "win32":
+            # 如果包含 "conda activate" 且前面没有 "call"，则自动补全 "call"
+            # 简单替换：将 "conda activate" 替换为 "call conda activate" (防止已经是 call 的情况，稍作判断)
+            # 这里做一个比较鲁棒的替换：把 "conda activate" 前面没有 "call " 的地方替换
+            # 为简单起见，如果包含 && conda activate，则大概率需要 call
+            if "conda activate" in cmd_to_run and "call conda activate" not in cmd_to_run:
+                logger.info("Detect Windows conda activate: Auto-prepending 'call' to fix batch exit issue.")
+                cmd_to_run = cmd_to_run.replace("conda activate", "call conda activate")
+        
         # 准备 Shell 可执行文件 (关键：支持 conda activate && python ...)
         shell_executable = "/bin/bash" if sys.platform != "win32" and os.path.exists("/bin/bash") else None
         
-        log_buffer = []
+        log_buffer_system_err = [] # [修改] 仅用于捕获系统级异常，如 spawn 失败
         exit_code = -1
         oom_detected = False
-        log_buffer_for_email = []
+        
+        # [关键修复] 用于存储真正输出到邮件的日志缓冲区 (stdout)
+        log_buffer_for_email = [] 
         
         # [关键修复] 提前初始化 backups，防止 finally 中 UnboundLocalError
         backups = {} 
@@ -791,7 +805,7 @@ class TrainingWorker:
             
             EminderClient.send_report(
                 f"任务开始: {task.name}",
-                f"Task ID: {task.id}\nGPUs: {cuda_str}\nWorkDir: {task.working_dir}\nCommand:\n{task.command}"
+                f"Task ID: {task.id}\nGPUs: {cuda_str}\nWorkDir: {task.working_dir}\nCommand:\n{cmd_to_run}"
             )
             
             env = os.environ.copy()
@@ -805,13 +819,20 @@ class TrainingWorker:
                 os.makedirs(working_dir, exist_ok=True)
 
             with open(log_path, "w", encoding='utf-8') as lf:
+                # [新增] 显式在日志文件中记录实际运行的命令，同时添加到邮件 Buffer
+                header_info = f"=== AutoTrainer Execution Started ===\nTimestamp: {datetime.datetime.now()}\nPlatform: {sys.platform}\nActual Command Executed:\n{cmd_to_run}\n=====================================\n\n"
+                
+                lf.write(header_info)
+                lf.flush()
+                log_buffer_for_email.append(header_info) # 同步到邮件正文
+                
                 self.current_proc = subprocess.Popen(
-                    task.command,
+                    cmd_to_run,
                     shell=True,
                     cwd=task.working_dir if os.path.exists(task.working_dir or "") else ".",
                     env=env,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
+                    stderr=subprocess.STDOUT, # 将 stderr 合并到 stdout
                     text=True,
                     bufsize=1,
                     executable=shell_executable # 强行指定 bash
@@ -821,7 +842,8 @@ class TrainingWorker:
                 db_session.commit()
                 
                 for line in self.current_proc.stdout:
-                    lf.write(line) 
+                    lf.write(line)
+                    lf.flush() # [关键修复] 确保每行日志都写入磁盘，防止日志为空
                     
                     lower_line = line.lower()
                     if "out of memory" in lower_line or "cuda out of memory" in lower_line:
@@ -837,7 +859,7 @@ class TrainingWorker:
 
         except Exception as e:
             logger.error(f"Execution Error: {e}")
-            log_buffer.append(f"\n\nSystem Error: {str(e)}")
+            log_buffer_system_err.append(f"\n\nSystem Error: {str(e)}")
             exit_code = -999
         finally:
             FileManager.restore_swaps(backups)
@@ -854,7 +876,9 @@ class TrainingWorker:
                     # [关键修复] 添加找到的文件到附件列表
                     attachments.extend(found_files)
             
-            log_str = "".join(log_buffer[-300:])
+            # [关键修复] 合并stdout日志和系统错误日志
+            final_log_lines = log_buffer_for_email + log_buffer_system_err
+            log_str = "".join(final_log_lines[-300:])
             
             # [关键修复] 将邮件发送逻辑移动到 finally 块中（with open 块之外）
             # 此时 Log 文件已关闭并落盘，EminderClient 读取时不会读到空文件
