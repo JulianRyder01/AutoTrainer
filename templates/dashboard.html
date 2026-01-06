@@ -47,13 +47,47 @@
             z-index: 1051;
             margin: auto;
         }
+        /* 强制运行的小弹窗 */
+        .force-modal-content {
+            max-width: 500px;
+        }
         
+        /* [新增] 日志查看弹窗特别样式 */
+        .log-modal-content {
+            max-width: 90%;
+            height: 85vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .log-viewer {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            padding: 15px;
+            overflow-y: auto;
+            flex-grow: 1;
+            white-space: pre-wrap;
+            border-bottom-left-radius: 8px;
+            border-bottom-right-radius: 8px;
+            font-size: 0.9rem;
+        }
+
         .btn-group-xs > .btn, .btn-xs {
             padding: .25rem .4rem;
             font-size: .875rem;
             line-height: 1.5;
             border-radius: .2rem;
         }
+        .gpu-checkbox-label {
+            cursor: pointer;
+            display: block;
+            padding: 8px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .gpu-checkbox-label:hover { background-color: #f8f9fa; }
+        .gpu-checkbox-label.selected { background-color: #e3f2fd; border-color: #0d6efd; color: #0d6efd; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -170,16 +204,26 @@
                                     </td>
                                     <td>
                                         <div class="d-flex flex-wrap gap-1">
+                                            <!-- [新增] 强制立即运行按钮 -->
+                                            <button v-if="task.status !== 'running'" class="btn btn-sm btn-danger" @click="openForceModal(task)" title="忽略队列强制立即执行">
+                                                🚀 立刻强行运行
+                                            </button>
+
+                                            <!-- 停止按钮 -->
+                                            <button v-if="task.status === 'running' || task.status === 'pending'" 
+                                                    class="btn btn-sm btn-outline-warning" @click="stopTask(task.id)">⏹ 停止</button>
+
+                                            <!-- 日志 -->
+                                            <button v-if="task.log_file_path || task.status === 'running'" class="btn btn-sm btn-outline-dark" @click="viewLog(task.id)" title="查看日志">
+                                                📜 日志
+                                            </button>
+
                                             <!-- 开始按钮 (仅 Paused) -->
                                             <button v-if="task.status === 'paused'" class="btn btn-sm btn-success" @click="startTask(task.id)">
                                                 ▶ 开始
                                             </button>
-
-                                            <!-- 停止按钮 (仅 Running/Pending) -->
-                                            <button v-if="task.status === 'running' || task.status === 'pending'" 
-                                                    class="btn btn-sm btn-outline-warning" @click="stopTask(task.id)">⏹ 停止</button>
                                             
-                                            <!-- 编辑按钮 (非 Running) -->
+                                            <!-- 编辑按钮 -->
                                             <button v-if="task.status !== 'running'" class="btn btn-sm btn-outline-primary" @click="openModal(task)">
                                                 ✎ 编辑
                                             </button>
@@ -280,7 +324,7 @@
                                 <input type="text" class="form-control" v-model="swap.target" placeholder="Target Path">
                                 <button type="button" class="btn btn-outline-danger" @click="form.swaps.splice(idx, 1)">×</button>
                             </div>
-                            <div v-if="form.swaps.length === 0" class="text-muted small">无文件替换操作 (用于临时修改代码文件。启动前，会先把对应目标文件换为原文件。运行完毕后，会自动恢复运行前的样子。)</div>
+                            <div v-if="form.swaps.length === 0" class="text-muted small">无文件替换操作 (通常用于临时修改代码文件)</div>
                         </div>
 
                         <div class="modal-footer px-0 pb-0 pt-3 border-top">
@@ -288,6 +332,67 @@
                             <button type="submit" class="btn btn-primary px-4">{{ editingId ? '保存更改' : '提交任务' }}</button>
                         </div>
                     </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- [新增] 强制运行配置弹窗 -->
+        <div class="custom-modal-backdrop" v-if="showForceModal" @click.self="showForceModal = false">
+            <div class="custom-modal-content force-modal-content">
+                <div class="modal-header p-3 border-bottom d-flex justify-content-between bg-danger text-white">
+                    <h5 class="modal-title mb-0">🚀 强制立即运行</h5>
+                    <button type="button" class="btn-close btn-close-white" @click="showForceModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="alert alert-warning small">
+                        <strong>⚠️ 警告：</strong> 此操作将忽略队列顺序和显卡占用情况，立即尝试启动。<br>
+                        如果失败，任务将回滚到原状态。<br>
+                        请手动指定要使用的显卡（多选）。
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">选择显卡 (当前状态)</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            <label v-for="gpu in gpus" :key="gpu.id" class="gpu-checkbox-label" :class="{'selected': forceForm.selected_gpus.includes(gpu.id)}">
+                                <input type="checkbox" :value="gpu.id" v-model="forceForm.selected_gpus" class="d-none">
+                                <div>GPU {{ gpu.id }}</div>
+                                <div class="small" :class="gpu.is_free ? 'text-success' : 'text-danger'">
+                                    {{ gpu.mem_used }}MB ({{ gpu.util }}%)
+                                </div>
+                            </label>
+                        </div>
+                        <div v-if="forceForm.selected_gpus.length === 0" class="text-danger small mt-2">
+                            请至少选择一张显卡。
+                        </div>
+                    </div>
+
+                    <div class="text-center mt-4">
+                        <button type="button" class="btn btn-secondary me-2" @click="showForceModal = false">取消</button>
+                        <button type="button" class="btn btn-danger px-4" 
+                                :disabled="forceForm.selected_gpus.length === 0"
+                                @click="submitForceRun">
+                            确认立即执行
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 日志查看弹窗 -->
+        <div class="custom-modal-backdrop" v-if="showLogModal" @click.self="showLogModal = false">
+            <div class="custom-modal-content log-modal-content">
+                <div class="modal-header p-3 border-bottom d-flex justify-content-between">
+                    <h5 class="modal-title mb-0">📜 运行日志 (Tail) - Task #{{ currentLogTaskId }}</h5>
+                    <button type="button" class="btn-close" @click="showLogModal = false"></button>
+                </div>
+                <div class="log-viewer" ref="logContainer">
+                    <div v-if="logLoading" class="text-center text-muted">加载中...</div>
+                    <div v-else-if="logContent">{{ logContent }}</div>
+                    <div v-else class="text-center text-muted">暂无日志内容</div>
+                </div>
+                <div class="modal-footer p-2 bg-light border-top">
+                    <button class="btn btn-sm btn-secondary" @click="fetchLog(currentLogTaskId)">刷新</button>
+                    <button class="btn btn-sm btn-primary" @click="showLogModal = false">关闭</button>
                 </div>
             </div>
         </div>
@@ -303,7 +408,16 @@
                 gpus: [],
                 gpu_threshold: 0,
                 showModal: false,
-                editingId: null, // 如果不为 null，表示正在编辑该 ID
+                showLogModal: false,
+                showForceModal: false, // [新增]
+                forceForm: {
+                    task_id: null,
+                    selected_gpus: []
+                },
+                logContent: '',
+                logLoading: false,
+                currentLogTaskId: null,
+                editingId: null, 
                 form: {
                     name: '',
                     command: '',
@@ -360,6 +474,52 @@
                         };
                     }
                     this.showModal = true;
+                },
+                // [新增] 打开强制运行 Modal
+                openForceModal(task) {
+                    this.forceForm.task_id = task.id;
+                    this.forceForm.selected_gpus = [];
+                    // 默认选一张最空闲的
+                    const freeGpu = this.gpus.find(g => g.is_free);
+                    if (freeGpu) {
+                        this.forceForm.selected_gpus.push(freeGpu.id);
+                    }
+                    this.showForceModal = true;
+                },
+                // [新增] 提交强制运行
+                submitForceRun() {
+                    if (!confirm("⚠️ 再次确认：\n您确定要忽略队列立即执行此任务吗？\n如果失败，任务将回滚到原状态。")) return;
+                    
+                    axios.post(`/api/tasks/${this.forceForm.task_id}/force_run`, {
+                        gpu_ids: this.forceForm.selected_gpus
+                    }).then(res => {
+                        this.showForceModal = false;
+                        this.loadData();
+                        alert('已发送立即执行指令！');
+                    }).catch(err => alert('操作失败: ' + (err.response?.data?.msg || err.message)));
+                },
+                viewLog(taskId) {
+                    this.currentLogTaskId = taskId;
+                    this.showLogModal = true;
+                    this.logContent = '';
+                    this.fetchLog(taskId);
+                },
+                // [新增] 获取日志内容
+                fetchLog(taskId) {
+                    this.logLoading = true;
+                    axios.get(`/api/tasks/${taskId}/log`).then(res => {
+                        this.logContent = res.data.content;
+                        // 自动滚动到底部
+                        this.$nextTick(_ => {
+                            if(this.$refs.logContainer) {
+                                this.$refs.logContainer.scrollTop = this.$refs.logContainer.scrollHeight;
+                            }
+                        });
+                    }).catch(err => {
+                        this.logContent = "无法获取日志或日志文件不存在。\n" + (err.response?.data?.msg || err.message);
+                    }).finally(_ => {
+                        this.logLoading = false;
+                    });
                 },
                 addSwap() {
                     this.form.swaps.push({source: '', target: ''});

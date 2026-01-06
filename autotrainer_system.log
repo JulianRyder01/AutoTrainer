@@ -264,3 +264,59 @@ pip install python-multipart
 2026-01-06 16:43:09,285 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
 2026-01-06 16:43:09,295 - AutoTrainer - INFO - Sending email to Eminder: 任务成功: Baseline1 (Copy) (Copy)
 2026-01-06 16:43:13,054 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 18:30:06,299 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 18:30:06,303 - AutoTrainer - INFO - Dashboard template initialized/updated.
+2026-01-06 18:30:54,096 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 18:30:54,098 - AutoTrainer - INFO - Dashboard template initialized/updated.
+2026-01-06 18:31:55,003 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 18:31:55,005 - AutoTrainer - INFO - Dashboard template initialized/updated.
+2026-01-06 18:32:41,409 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 18:32:41,411 - AutoTrainer - INFO - Dashboard template initialized/updated.
+2026-01-06 18:33:09,870 - AutoTrainer - INFO - Start Task 3 (Forced=True) 'Baseline1 (Copy) (Copy)': GPUs 0
+2026-01-06 18:33:09,873 - AutoTrainer - INFO - Swapped: D:\TemporaryAkina\test.md -> D:\TemporaryAkina\ohyear\1.py
+2026-01-06 18:33:09,873 - AutoTrainer - INFO - Sending email to Eminder: 任务开始 (强制): Baseline1 (Copy) (Copy)
+2026-01-06 18:33:17,069 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 18:33:17,085 - AutoTrainer - ERROR - Execution Error: name 'proc' is not defined
+2026-01-06 18:33:17,086 - AutoTrainer - INFO - Restored: D:\TemporaryAkina\ohyear\1.py
+2026-01-06 18:33:17,087 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
+2026-01-06 18:33:17,088 - AutoTrainer - INFO - Sending email to Eminder: 任务失败 (已暂停): Baseline1 (Copy) (Copy)
+2026-01-06 18:33:32,645 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 18:33:35,702 - AutoTrainer - INFO - Start Task 2 (Forced=True) 'Baseline1 (Copy)': GPUs 0
+2026-01-06 18:33:35,702 - AutoTrainer - INFO - Sending email to Eminder: 任务开始 (强制): Baseline1 (Copy)
+2026-01-06 18:33:40,456 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 18:33:40,465 - AutoTrainer - ERROR - Execution Error: name 'proc' is not defined
+2026-01-06 18:33:40,465 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
+2026-01-06 18:33:40,466 - AutoTrainer - INFO - Sending email to Eminder: 任务失败 (已暂停): Baseline1 (Copy)
+2026-01-06 18:33:46,557 - AutoTrainer - INFO - Start Task 3 (Forced=False) 'Baseline1 (Copy) (Copy)': GPUs 0
+2026-01-06 18:33:46,560 - AutoTrainer - INFO - Swapped: D:\TemporaryAkina\test.md -> D:\TemporaryAkina\ohyear\1.py
+2026-01-06 18:33:46,560 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: Baseline1 (Copy) (Copy)
+2026-01-06 18:33:51,596 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 18:33:51,604 - AutoTrainer - ERROR - Execution Error: name 'proc' is not defined
+2026-01-06 18:33:51,605 - AutoTrainer - INFO - Restored: D:\TemporaryAkina\ohyear\1.py
+2026-01-06 18:33:51,606 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
+2026-01-06 18:33:51,606 - AutoTrainer - WARNING - Task 3 retrying (1)
+2026-01-06 18:33:51,606 - AutoTrainer - INFO - Sending email to Eminder: 任务重试 (1): Baseline1 (Copy) (Copy)
+2026-01-06 18:33:59,209 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 18:34:06,085 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 18:34:11,153 - AutoTrainer - INFO - Start Task 3 (Forced=False) 'Baseline1 (Copy) (Copy)': GPUs 0
+2026-01-06 18:34:11,162 - AutoTrainer - INFO - Swapped: D:\TemporaryAkina\test.md -> D:\TemporaryAkina\ohyear\1.py
+2026-01-06 18:34:11,163 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: Baseline1 (Copy) (Copy)
+2026-01-06 18:34:15,945 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 18:34:15,963 - AutoTrainer - ERROR - Execution Error: name 'proc' is not defined
+2026-01-06 18:34:15,966 - AutoTrainer - INFO - Restored: D:\TemporaryAkina\ohyear\1.py
+2026-01-06 18:34:15,967 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
+2026-01-06 18:34:15,968 - AutoTrainer - INFO - Sending email to Eminder: 任务失败: Baseline1 (Copy) (Copy)
+2026-01-06 18:34:30,190 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 18:45:02,569 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 18:45:02,571 - AutoTrainer - INFO - Dashboard template initialized/updated.
+2026-01-06 18:45:32,224 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 18:45:32,226 - AutoTrainer - INFO - Dashboard template initialized/updated.
+2026-01-06 18:48:36,085 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 18:48:36,087 - AutoTrainer - INFO - Dashboard template initialized/updated.
+2026-01-06 18:48:40,427 - AutoTrainer - INFO - Start Task 3 (Forced=True) 'Baseline1 (Copy) (Copy)': GPUs 0
+2026-01-06 18:48:40,430 - AutoTrainer - INFO - Swapped: D:\TemporaryAkina\test.md -> D:\TemporaryAkina\ohyear\1.py
+2026-01-06 18:48:40,430 - AutoTrainer - INFO - Sending email to Eminder: 任务开始 (强制): Baseline1 (Copy) (Copy)
+2026-01-06 18:48:48,483 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 18:48:57,286 - AutoTrainer - INFO - Restored: D:\TemporaryAkina\ohyear\1.py
+2026-01-06 18:48:57,287 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
+2026-01-06 18:48:57,293 - AutoTrainer - INFO - Sending email to Eminder: 任务成功: Baseline1 (Copy) (Copy)

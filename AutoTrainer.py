@@ -13,14 +13,14 @@ import signal
 import requests
 import warnings
 import glob
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
 from enum import Enum
 
 # 忽略 pynvml 的 FutureWarning
 warnings.filterwarnings("ignore", category=FutureWarning, module="pynvml")
 
 import pynvml
-from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi import FastAPI, Request, Form, HTTPException, BackgroundTasks
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, JSON, desc
@@ -84,6 +84,10 @@ HTML_TEMPLATE_CONTENT = r"""
             z-index: 1051;
             margin: auto;
         }
+        /* 强制运行的小弹窗 */
+        .force-modal-content {
+            max-width: 500px;
+        }
         
         /* [新增] 日志查看弹窗特别样式 */
         .log-modal-content {
@@ -111,6 +115,16 @@ HTML_TEMPLATE_CONTENT = r"""
             line-height: 1.5;
             border-radius: .2rem;
         }
+        .gpu-checkbox-label {
+            cursor: pointer;
+            display: block;
+            padding: 8px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .gpu-checkbox-label:hover { background-color: #f8f9fa; }
+        .gpu-checkbox-label.selected { background-color: #e3f2fd; border-color: #0d6efd; color: #0d6efd; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -151,7 +165,7 @@ HTML_TEMPLATE_CONTENT = r"""
             </div>
             <div class="col-md-4">
                 <div class="card p-3" style="height: 100%;">
-                    <div class="text-muted small mb-2">GPU 实时监控 (阈值: 2000MB)</div>
+                    <div class="text-muted small mb-2">GPU 实时监控 (阈值: 4000MB)</div>
                     <div class="row g-2" style="max-height: 160px; overflow-y: auto;">
                         <div class="col-6" v-for="gpu in gpus" :key="gpu.id">
                             <div class="border rounded p-1 small d-flex justify-content-between align-items-center" 
@@ -227,7 +241,16 @@ HTML_TEMPLATE_CONTENT = r"""
                                     </td>
                                     <td>
                                         <div class="d-flex flex-wrap gap-1">
-                                            <!-- [新增] 日志查看按钮 (有日志路径即可看) -->
+                                            <!-- [新增] 强制立即运行按钮 -->
+                                            <button v-if="task.status !== 'running'" class="btn btn-sm btn-danger" @click="openForceModal(task)" title="忽略队列强制立即执行">
+                                                🚀 立刻强行运行
+                                            </button>
+
+                                            <!-- 停止按钮 -->
+                                            <button v-if="task.status === 'running' || task.status === 'pending'" 
+                                                    class="btn btn-sm btn-outline-warning" @click="stopTask(task.id)">⏹ 停止</button>
+
+                                            <!-- 日志 -->
                                             <button v-if="task.log_file_path || task.status === 'running'" class="btn btn-sm btn-outline-dark" @click="viewLog(task.id)" title="查看日志">
                                                 📜 日志
                                             </button>
@@ -236,12 +259,8 @@ HTML_TEMPLATE_CONTENT = r"""
                                             <button v-if="task.status === 'paused'" class="btn btn-sm btn-success" @click="startTask(task.id)">
                                                 ▶ 开始
                                             </button>
-
-                                            <!-- 停止按钮 (仅 Running/Pending) -->
-                                            <button v-if="task.status === 'running' || task.status === 'pending'" 
-                                                    class="btn btn-sm btn-outline-warning" @click="stopTask(task.id)">⏹ 停止</button>
                                             
-                                            <!-- 编辑按钮 (非 Running) -->
+                                            <!-- 编辑按钮 -->
                                             <button v-if="task.status !== 'running'" class="btn btn-sm btn-outline-primary" @click="openModal(task)">
                                                 ✎ 编辑
                                             </button>
@@ -354,7 +373,49 @@ HTML_TEMPLATE_CONTENT = r"""
             </div>
         </div>
 
-        <!-- [新增] 日志查看弹窗 -->
+        <!-- [新增] 强制运行配置弹窗 -->
+        <div class="custom-modal-backdrop" v-if="showForceModal" @click.self="showForceModal = false">
+            <div class="custom-modal-content force-modal-content">
+                <div class="modal-header p-3 border-bottom d-flex justify-content-between bg-danger text-white">
+                    <h5 class="modal-title mb-0">🚀 强制立即运行</h5>
+                    <button type="button" class="btn-close btn-close-white" @click="showForceModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="alert alert-warning small">
+                        <strong>⚠️ 警告：</strong> 此操作将忽略队列顺序和显卡占用情况，立即尝试启动。<br>
+                        如果失败，任务将回滚到原状态。<br>
+                        请手动指定要使用的显卡（多选）。
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">选择显卡 (当前状态)</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            <label v-for="gpu in gpus" :key="gpu.id" class="gpu-checkbox-label" :class="{'selected': forceForm.selected_gpus.includes(gpu.id)}">
+                                <input type="checkbox" :value="gpu.id" v-model="forceForm.selected_gpus" class="d-none">
+                                <div>GPU {{ gpu.id }}</div>
+                                <div class="small" :class="gpu.is_free ? 'text-success' : 'text-danger'">
+                                    {{ gpu.mem_used }}MB ({{ gpu.util }}%)
+                                </div>
+                            </label>
+                        </div>
+                        <div v-if="forceForm.selected_gpus.length === 0" class="text-danger small mt-2">
+                            请至少选择一张显卡。
+                        </div>
+                    </div>
+
+                    <div class="text-center mt-4">
+                        <button type="button" class="btn btn-secondary me-2" @click="showForceModal = false">取消</button>
+                        <button type="button" class="btn btn-danger px-4" 
+                                :disabled="forceForm.selected_gpus.length === 0"
+                                @click="submitForceRun">
+                            确认立即执行
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 日志查看弹窗 -->
         <div class="custom-modal-backdrop" v-if="showLogModal" @click.self="showLogModal = false">
             <div class="custom-modal-content log-modal-content">
                 <div class="modal-header p-3 border-bottom d-flex justify-content-between">
@@ -384,10 +445,15 @@ HTML_TEMPLATE_CONTENT = r"""
                 gpus: [],
                 gpu_threshold: 0,
                 showModal: false,
-                showLogModal: false, // [新增]
-                logContent: '',      // [新增]
-                logLoading: false,   // [新增]
-                currentLogTaskId: null, // [新增]
+                showLogModal: false,
+                showForceModal: false, // [新增]
+                forceForm: {
+                    task_id: null,
+                    selected_gpus: []
+                },
+                logContent: '',
+                logLoading: false,
+                currentLogTaskId: null,
                 editingId: null, 
                 form: {
                     name: '',
@@ -446,7 +512,29 @@ HTML_TEMPLATE_CONTENT = r"""
                     }
                     this.showModal = true;
                 },
-                // [新增] 查看日志
+                // [新增] 打开强制运行 Modal
+                openForceModal(task) {
+                    this.forceForm.task_id = task.id;
+                    this.forceForm.selected_gpus = [];
+                    // 默认选一张最空闲的
+                    const freeGpu = this.gpus.find(g => g.is_free);
+                    if (freeGpu) {
+                        this.forceForm.selected_gpus.push(freeGpu.id);
+                    }
+                    this.showForceModal = true;
+                },
+                // [新增] 提交强制运行
+                submitForceRun() {
+                    if (!confirm("⚠️ 再次确认：\n您确定要忽略队列立即执行此任务吗？\n如果失败，任务将回滚到原状态。")) return;
+                    
+                    axios.post(`/api/tasks/${this.forceForm.task_id}/force_run`, {
+                        gpu_ids: this.forceForm.selected_gpus
+                    }).then(res => {
+                        this.showForceModal = false;
+                        this.loadData();
+                        alert('已发送立即执行指令！');
+                    }).catch(err => alert('操作失败: ' + (err.response?.data?.msg || err.message)));
+                },
                 viewLog(taskId) {
                     this.currentLogTaskId = taskId;
                     this.showLogModal = true;
@@ -552,7 +640,7 @@ RECEIVER_EMAIL = "892640097@qq.com"
 TEMPLATE_TYPE = "training_report"
 
 # GPU 配置
-GPU_MEMORY_THRESHOLD = 20000  # MB, 低于此值视为显卡空闲
+GPU_MEMORY_THRESHOLD = 4000  # MB, 低于此值视为显卡空闲
 GPU_CHECK_INTERVAL = 5       # 秒, 轮询间隔
 
 # 日志配置
@@ -778,8 +866,12 @@ class EminderClient:
 class TrainingWorker:
     def __init__(self):
         self.is_running = True
-        self.current_proc = None
-        self.current_task_id = None
+        # [修改] 使用字典支持并发管理进程 {task_id: subprocess.Popen}
+        self.running_procs: Dict[int, subprocess.Popen] = {}
+        self.running_procs_lock = threading.Lock()
+        
+        # 记录当前自动调度的任务ID，用于区分自动任务和强制任务
+        self.current_auto_task_id = None
         self._recover_state()
         
     def _recover_state(self):
@@ -802,7 +894,10 @@ class TrainingWorker:
         logger.info("AutoTrainer Worker Loop Started.")
         while self.is_running:
             try:
-                self._check_queue()
+                # 只有当没有自动任务在跑的时候，才去取下一个 pending
+                # 强制任务不影响这个逻辑，但自动任务每次只能跑一个
+                if self.current_auto_task_id is None:
+                    self._check_queue()
             except Exception as e:
                 logger.error(f"Worker Loop Error: {e}")
                 traceback.print_exc()
@@ -823,13 +918,27 @@ class TrainingWorker:
             
             if len(free_gpus) >= req_min:
                 use_gpus = free_gpus[:min(len(free_gpus), req_max)]
-                self._execute_task(task.id, use_gpus, db)
+                # 标记当前正在跑自动任务
+                self.current_auto_task_id = task.id
+                # 阻塞执行（自动任务串行）
+                self.execute_task_logic(task.id, use_gpus, is_forced=False)
+                # 执行完清理标记
+                self.current_auto_task_id = None
         finally:
             db.close()
 
-    def _execute_task(self, task_id, gpu_indices, db_session):
-        # [修改点] 修复 LegacyAPIWarning: .query(Task).get() -> .get(Task, id)
+    def execute_task_logic(self, task_id: int, gpu_indices: List[int], is_forced: bool = False, revert_to_status: str = None):
+        """
+        核心执行逻辑，被自动调度和强制运行共享。
+        revert_to_status: 强制运行失败时回滚的状态。
+        """
+        db_session = SessionLocal()
+        # [修改] 使用 Session.get 替代 .query.get (SQLAlchemy 2.0+ 兼容)
         task = db_session.get(Task, task_id)
+        if not task: 
+            db_session.close()
+            return
+
         task.status = TaskStatus.RUNNING
         task.started_at = datetime.datetime.now()
         self.current_task_id = task.id
@@ -840,7 +949,7 @@ class TrainingWorker:
         
         db_session.commit()
         
-        logger.info(f"Start Task {task.id} '{task.name}': GPUs {cuda_str}")
+        logger.info(f"Start Task {task.id} (Forced={is_forced}) '{task.name}': GPUs {cuda_str}")
         
         # 准备环境 (核心修改：注入任务名)
         env = os.environ.copy()
@@ -848,7 +957,12 @@ class TrainingWorker:
         env["AUTOTRAINER_RUNNING"] = "true" 
         env["AUTOTRAINER_TASK_NAME"] = str(task.name)
         env["AUTOTRAINER_TASK_ID"] = str(task.id)
-        
+
+        # 3. 注入 Pytorch 分布式/网络相关变量 (移到 try 外面或里面都可以，只要不重置 env)
+        env["NCCL_P2P_DISABLE"] = "1" 
+        env["NCCL_IB_DISABLE"] = "1"
+        env["MASTER_ADDR"] = "localhost" 
+
         # [关键逻辑] Windows 命令预处理
         # 解决 Windows cmd "conda activate && python" 执行完 activate 直接退出的 bug
         cmd_to_run = task.command
@@ -889,17 +1003,12 @@ class TrainingWorker:
             # 虽然 EminderClient 内部有 catch，但这里再次包裹，防止 send_report 抛出未捕获的异常（如参数错误）中断流程。
             try:
                 EminderClient.send_report(
-                    f"任务开始: {task.name}",
+                    f"任务开始{' (强制)' if is_forced else ''}: {task.name}",
                     f"Task ID: {task.id}\nGPUs: {cuda_str}\nWorkDir: {task.working_dir}\nCommand:\n{cmd_to_run}"
                 )
             except Exception as eminder_e:
                 logger.error(f"Eminder Start-Notification Failed (Ignored for robustness): {eminder_e}")
             
-            env = os.environ.copy()
-            env["CUDA_VISIBLE_DEVICES"] = cuda_str
-            env["NCCL_P2P_DISABLE"] = "1" 
-            env["NCCL_IB_DISABLE"] = "1"
-            env["MASTER_ADDR"] = "localhost" 
             
             working_dir = task.working_dir if task.working_dir else "."
             if not os.path.exists(working_dir):
@@ -913,7 +1022,10 @@ class TrainingWorker:
                 lf.flush()
                 log_buffer_for_email.append(header_info) # 同步到邮件正文
                 
-                self.current_proc = subprocess.Popen(
+                # [核心修复 START] 
+                # 使用局部变量 process 而非 self.current_proc 以支持并发（如自动任务+强制任务同时进行）
+                # 修复 name 'proc' is not defined 问题
+                process = subprocess.Popen(
                     cmd_to_run,
                     shell=True,
                     cwd=task.working_dir if os.path.exists(task.working_dir or "") else ".",
@@ -924,11 +1036,14 @@ class TrainingWorker:
                     bufsize=1,
                     executable=shell_executable # 强行指定 bash
                 )
-                
-                task.pid = self.current_proc.pid
+                # [修改] 注册进程以便可以被停止
+                with self.running_procs_lock:
+                    self.running_procs[task.id] = process
+
+                task.pid = process.pid
                 db_session.commit()
                 
-                for line in self.current_proc.stdout:
+                for line in process.stdout:
                     lf.write(line)
                     lf.flush() # [关键修复] 确保每行日志都写入磁盘，防止日志为空
                     
@@ -941,8 +1056,9 @@ class TrainingWorker:
                         if len(log_buffer_for_email) > 300:
                             log_buffer_for_email.pop(0)
                 
-                self.current_proc.wait()
-                exit_code = self.current_proc.returncode
+                process.wait()
+                exit_code = process.returncode
+                # [核心修复 END]
 
         except Exception as e:
             logger.error(f"Execution Error: {e}")
@@ -950,7 +1066,11 @@ class TrainingWorker:
             exit_code = -999
         finally:
             FileManager.restore_swaps(backups)
-            self.current_proc = None
+            
+            # [修改] 移除进程注册
+            with self.running_procs_lock:
+                if task.id in self.running_procs:
+                    del self.running_procs[task.id]
             
             task.finished_at = datetime.datetime.now()
             task.exit_code = exit_code
@@ -985,41 +1105,56 @@ class TrainingWorker:
                         attachments=attachments
                     )
                 else:
-                    can_retry = task.retry_count < task.max_retries
-                    
+                    # 失败逻辑
+                    can_retry = (task.retry_count < task.max_retries) and not is_forced # 强制运行不自动重试
+
                     if can_retry:
                         task.retry_count += 1
                         task.status = TaskStatus.PENDING 
                         task.pid = None
-                        EminderClient.send_report(
-                            f"任务出现错误，正在重试 ({task.retry_count}/{task.max_retries}): {task.name}",
-                            f"Detected Error/OOM. Re-queueing task.\nExit Code: {exit_code}\nOOM Detected: {oom_detected}\n\nLogs Tail:\n{log_str}",
-                            attachments=attachments
-                        )
-                        logger.warning(f"Task {task.id} failed (code {exit_code}). Retrying {task.retry_count}/{task.max_retries}")
+                        logger.warning(f"Task {task.id} retrying ({task.retry_count})")
+                        EminderClient.send_report(f"任务重试 ({task.retry_count}): {task.name}", f"Code: {exit_code}\nLogs:\n{log_str}", attachments)
                     else:
-                        task.status = TaskStatus.FAILED
+                        # [新增] 强制运行的状态回滚逻辑
+                        if is_forced and revert_to_status:
+                            # 需求：原来是 pending 的回到 pending，其他变为暂停
+                            if revert_to_status == TaskStatus.PENDING:
+                                task.status = TaskStatus.PENDING
+                                msg_suffix = " (已回滚至队列)"
+                            else:
+                                task.status = TaskStatus.PAUSED
+                                msg_suffix = " (已暂停)"
+                        else:
+                            task.status = TaskStatus.FAILED
+                            msg_suffix = ""
+
                         EminderClient.send_report(
-                            f"任务最终失败 (次数: {task.retry_count}): {task.name}",
-                            f"Max retries reached.\nExit Code: {exit_code}\nOOM: {oom_detected}\n\nLogs Tail:\n{log_str}",
-                            attachments=attachments
+                            f"任务失败{msg_suffix}: {task.name}", 
+                            f"Forced: {is_forced}\nExit Code: {exit_code}\nOOM: {oom_detected}\nLogs:\n{log_str}", 
+                            attachments
                         )
-            except Exception as eminder_end_e:
-                logger.error(f"Eminder End-Notification Failed (Ignored): {eminder_end_e}")
+            except Exception as e:
+                logger.error(f"Post-run logic error: {e}")
             
             db_session.commit()
+            db_session.close()
 
-    def stop_current_task(self):
-        if self.current_proc:
-            try:
-                if sys.platform == "win32":
-                    subprocess.call(['taskkill', '/F', '/T', '/PID', str(self.current_proc.pid)])
-                else:
-                    pgid = os.getpgid(self.current_proc.pid)
-                    os.killpg(pgid, signal.SIGTERM)
-                logger.info(f"Killed process {self.current_proc.pid}")
-            except Exception as e:
-                logger.error(f"Failed to kill process: {e}")
+    def stop_task_by_id(self, task_id: int):
+        """根据 TaskID 停止进程，支持并发"""
+        with self.running_procs_lock:
+            proc = self.running_procs.get(task_id)
+            if proc:
+                try:
+                    logger.info(f"Stopping task {task_id}, PID {proc.pid}")
+                    if sys.platform == "win32":
+                        subprocess.call(['taskkill', '/F', '/T', '/PID', str(proc.pid)])
+                    else:
+                        pgid = os.getpgid(proc.pid)
+                        os.killpg(pgid, signal.SIGTERM)
+                except Exception as e:
+                    logger.error(f"Failed to kill process {proc.pid}: {e}")
+            else:
+                logger.warning(f"Stop request for task {task_id} but no process found in registry.")
 
 worker = TrainingWorker()
 worker.start()
@@ -1137,6 +1272,46 @@ def get_task_log(tid: int):
             return JSONResponse(status_code=500, content={"msg": f"Error reading log: {str(e)}"})
     finally:
         db.close()
+
+
+
+@app.post("/api/tasks/{tid}/force_run")
+async def force_run_task(tid: int, request: Request, background_tasks: BackgroundTasks):
+    data = await request.json()
+    gpu_ids = data.get("gpu_ids", [])
+    
+    if not gpu_ids:
+        raise HTTPException(status_code=400, detail="Must select at least one GPU")
+
+    db = SessionLocal()
+    try:
+        task = db.get(Task, tid)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        if task.status == TaskStatus.RUNNING:
+            raise HTTPException(status_code=400, detail="Task is already running")
+            
+        # [逻辑关键点] 记录原始状态，以便失败回滚
+        original_status = task.status
+        
+        # 立即更新状态，防止被 Worker 再次捞取（如果原状态是 pending）
+        task.status = TaskStatus.RUNNING
+        db.commit()
+        
+        # 在后台线程运行，不阻塞 API
+        background_tasks.add_task(
+            worker.execute_task_logic, 
+            task_id=tid, 
+            gpu_indices=gpu_ids, 
+            is_forced=True, 
+            revert_to_status=original_status
+        )
+        
+    finally:
+        db.close()
+        
+    return {"msg": "Force execution started"}
 
 @app.post("/api/tasks/create")
 async def create_task(
@@ -1309,8 +1484,8 @@ def stop_task(tid: int):
             return JSONResponse(status_code=404, content={"msg": "Not found"})
         
         if task.status == TaskStatus.RUNNING:
-            if worker.current_task_id == tid:
-                worker.stop_current_task()
+            # [修改] 调用新的根据 ID 停止任务的方法
+            worker.stop_task_by_id(tid)
             task.status = TaskStatus.STOPPED
             task.finished_at = datetime.datetime.now()
             task.error_msg = "Manually stopped by user"
@@ -1330,8 +1505,7 @@ def delete_task(tid: int):
         task = db.get(Task, tid)
         if task:
             if task.status == TaskStatus.RUNNING:
-                if worker.current_task_id == tid:
-                    worker.stop_current_task()
+                worker.stop_task_by_id(tid)
             db.delete(task)
             db.commit()
     finally:
