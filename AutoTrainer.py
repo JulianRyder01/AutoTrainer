@@ -29,10 +29,12 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 # ==============================================================================
 # 0. 内嵌资源 (前端修复核心区域)
 # ==============================================================================
-# [修复说明] 
+# [修复说明]
 # 1. 移除了 modal 的 'fade' 类，防止弹窗透明不可见。
 # 2. 增加了 v-cloak 防止 Vue 加载前的闪烁。
 # 3. 增强了 Modal 的 CSS 样式，确保它一定显示在最上层。
+# 4. JS中将 .then(() => 改为 .then(_ => 以防止出现 '((', 
+#    避免与 Python 后端 Jinja2 的 variable_start_string='((' 发生冲突。
 HTML_TEMPLATE_CONTENT = r"""
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -56,6 +58,8 @@ HTML_TEMPLATE_CONTENT = r"""
         .status-completed { background-color: #d1e7dd; color: #0f5132; border: 1px solid #badbcc; }
         .status-failed { background-color: #f8d7da; color: #842029; border: 1px solid #f5c6cb; }
         .status-stopped { background-color: #e2e3e5; color: #41464b; border: 1px solid #d3d6d8; }
+        /* [新增] 暂停状态样式 */
+        .status-paused { background-color: #f8f9fa; color: #6c757d; border: 1px solid #dee2e6; border-style: dashed; }
 
         /* [关键修复] 自定义 Modal 样式，不依赖 Bootstrap JS */
         .custom-modal-backdrop {
@@ -80,6 +84,13 @@ HTML_TEMPLATE_CONTENT = r"""
             z-index: 1051;
             margin: auto;
         }
+        
+        .btn-group-xs > .btn, .btn-xs {
+            padding: .25rem .4rem;
+            font-size: .875rem;
+            line-height: 1.5;
+            border-radius: .2rem;
+        }
     </style>
 </head>
 <body>
@@ -87,7 +98,7 @@ HTML_TEMPLATE_CONTENT = r"""
     <div id="app" class="container-fluid py-4 px-4" v-cloak>
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h2 class="fw-bold text-primary"><span style="color:#333">Auto</span>Trainer <small class="text-muted fs-6">Pro Edition</small></h2>
-            <button class="btn btn-primary btn-lg shadow-sm" @click="openModal">
+            <button class="btn btn-primary btn-lg shadow-sm" @click="openModal(null)">
                 <span style="font-size: 1.1rem; font-weight: bold;">+ 新建训练任务</span>
             </button>
         </div>
@@ -153,8 +164,8 @@ HTML_TEMPLATE_CONTENT = r"""
                                     <th width="10%">状态</th>
                                     <th width="10%">配置</th>
                                     <th width="15%">时间</th>
-                                    <th width="25%">详情</th>
-                                    <th width="15%">操作</th>
+                                    <th width="20%">详情</th>
+                                    <th width="20%">操作</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -195,9 +206,35 @@ HTML_TEMPLATE_CONTENT = r"""
                                         </div>
                                     </td>
                                     <td>
-                                        <button v-if="task.status === 'running' || task.status === 'pending'" 
-                                                class="btn btn-sm btn-outline-warning" @click="stopTask(task.id)">⏹ 停止</button>
-                                        <button class="btn btn-sm btn-outline-danger" @click="delTask(task.id)">🗑 删除</button>
+                                        <div class="d-flex flex-wrap gap-1">
+                                            <!-- 开始按钮 (仅 Paused) -->
+                                            <button v-if="task.status === 'paused'" class="btn btn-sm btn-success" @click="startTask(task.id)">
+                                                ▶ 开始
+                                            </button>
+
+                                            <!-- 停止按钮 (仅 Running/Pending) -->
+                                            <button v-if="task.status === 'running' || task.status === 'pending'" 
+                                                    class="btn btn-sm btn-outline-warning" @click="stopTask(task.id)">⏹ 停止</button>
+                                            
+                                            <!-- 编辑按钮 (非 Running) -->
+                                            <button v-if="task.status !== 'running'" class="btn btn-sm btn-outline-primary" @click="openModal(task)">
+                                                ✎ 编辑
+                                            </button>
+
+                                            <!-- 复制按钮 (所有) -->
+                                            <button class="btn btn-sm btn-outline-secondary" @click="copyTask(task.id)">
+                                                📋 复制
+                                            </button>
+
+                                            <!-- 重试按钮 (Failed/Completed/Stopped) -->
+                                            <button v-if="['failed', 'completed', 'stopped'].includes(task.status)" 
+                                                    class="btn btn-sm btn-outline-info" @click="retryTask(task.id)">
+                                                🔄 重试
+                                            </button>
+
+                                            <!-- 删除按钮 -->
+                                            <button class="btn btn-sm btn-outline-danger" @click="delTask(task.id)">🗑</button>
+                                        </div>
                                     </td>
                                 </tr>
                                 <tr v-if="tasks.length === 0">
@@ -213,11 +250,11 @@ HTML_TEMPLATE_CONTENT = r"""
             </div>
         </div>
 
-        <!-- 新建任务弹窗 (完全手写样式，避开 Bootstrap JS 依赖) -->
+        <!-- 新建/编辑任务弹窗 -->
         <div class="custom-modal-backdrop" v-if="showModal" @click.self="showModal = false">
             <div class="custom-modal-content">
                 <div class="modal-header p-3 border-bottom d-flex justify-content-between">
-                    <h5 class="modal-title mb-0">创建新训练任务</h5>
+                    <h5 class="modal-title mb-0">{{ editingId ? '编辑任务' : '创建新训练任务' }}</h5>
                     <button type="button" class="btn-close" @click="showModal = false"></button>
                 </div>
                 <div class="modal-body p-4">
@@ -239,7 +276,7 @@ HTML_TEMPLATE_CONTENT = r"""
                             <textarea class="form-control font-monospace bg-light" v-model="form.command" rows="3" required placeholder="conda activate MyEnv && python train.py"></textarea>
                         </div>
 
-                        <!-- 产物抓取配置 (新增) -->
+                        <!-- 产物抓取配置 -->
                         <div class="mb-3 p-3 bg-light border rounded">
                             <label class="form-label fw-bold text-success">📸 结果产物自动发送 (Artifacts)</label>
                             <div class="row">
@@ -285,7 +322,7 @@ HTML_TEMPLATE_CONTENT = r"""
 
                         <div class="modal-footer px-0 pb-0 pt-3 border-top">
                             <button type="button" class="btn btn-secondary me-2" @click="showModal = false">取消</button>
-                            <button type="submit" class="btn btn-primary px-4">提交任务</button>
+                            <button type="submit" class="btn btn-primary px-4">{{ editingId ? '保存更改' : '提交任务' }}</button>
                         </div>
                     </form>
                 </div>
@@ -303,6 +340,7 @@ HTML_TEMPLATE_CONTENT = r"""
                 gpus: [],
                 gpu_threshold: 0,
                 showModal: false,
+                editingId: null, // 如果不为 null，表示正在编辑该 ID
                 form: {
                     name: '',
                     command: '',
@@ -310,6 +348,8 @@ HTML_TEMPLATE_CONTENT = r"""
                     min_gpus: 1,
                     max_gpus: 8,
                     retry_count: 1,
+                    artifact_dir: '',
+                    artifact_pattern: '',
                     swaps: []
                 }
             },
@@ -321,16 +361,41 @@ HTML_TEMPLATE_CONTENT = r"""
                         this.tasks = res.data.tasks;
                     }).catch(console.error);
                 },
-                openModal() {
-                    this.form = {
-                        name: '',
-                        command: '',
-                        working_dir: this.form.working_dir || '.', 
-                        min_gpus: 1,
-                        max_gpus: 8,
-                        retry_count: 1,
-                        swaps: []
-                    };
+                openModal(task) {
+                    if (task) {
+                        // 编辑模式
+                        if (['completed', 'failed', 'stopped'].includes(task.status)) {
+                            if (!confirm("编辑已完成或停止的任务将重新加入队列并重置状态，确定要继续吗？")) {
+                                return;
+                            }
+                        }
+                        this.editingId = task.id;
+                        this.form = {
+                            name: task.name,
+                            command: task.command,
+                            working_dir: task.working_dir,
+                            min_gpus: task.gpu_config.min_gpus,
+                            max_gpus: task.gpu_config.max_gpus,
+                            retry_count: task.max_retries,
+                            artifact_dir: task.artifact_dir || '',
+                            artifact_pattern: task.artifact_pattern || '',
+                            swaps: JSON.parse(JSON.stringify(task.file_swaps || []))
+                        };
+                    } else {
+                        // 新建模式
+                        this.editingId = null;
+                        this.form = {
+                            name: '',
+                            command: '',
+                            working_dir: this.form.working_dir || '.', 
+                            min_gpus: 1,
+                            max_gpus: 8,
+                            retry_count: 1,
+                            artifact_dir: '',
+                            artifact_pattern: '',
+                            swaps: []
+                        };
+                    }
                     this.showModal = true;
                 },
                 addSwap() {
@@ -344,15 +409,22 @@ HTML_TEMPLATE_CONTENT = r"""
                     fd.append('min_gpus', this.form.min_gpus);
                     fd.append('max_gpus', this.form.max_gpus);
                     fd.append('retry_count', this.form.retry_count);
+                    fd.append('artifact_dir', this.form.artifact_dir);
+                    fd.append('artifact_pattern', this.form.artifact_pattern);
                     
                     const validSwaps = this.form.swaps.filter(s => s.source && s.target);
                     fd.append('swaps_json', JSON.stringify(validSwaps));
 
-                    axios.post('/api/tasks/create', fd).then(res => {
+                    let url = '/api/tasks/create';
+                    if (this.editingId) {
+                        url = `/api/tasks/${this.editingId}/update`;
+                    }
+
+                    axios.post(url, fd).then(res => {
                         this.showModal = false;
                         this.loadData();
-                        alert('任务已加入队列！');
-                    }).catch(err => alert('提交失败: ' + (err.response?.data?.msg || err.message)));
+                        alert(this.editingId ? '任务已更新！' : '任务已加入队列！');
+                    }).catch(err => alert('操作失败: ' + (err.response?.data?.msg || err.message)));
                 },
                 stopTask(id) {
                     if(!confirm('确定要停止该任务吗？')) return;
@@ -361,6 +433,23 @@ HTML_TEMPLATE_CONTENT = r"""
                 delTask(id) {
                     if(!confirm('确定要删除记录吗？')) return;
                     axios.delete(`/api/tasks/${id}`).then(this.loadData);
+                },
+                copyTask(id) {
+                    axios.post(`/api/tasks/${id}/copy`).then(_ => {
+                        this.loadData();
+                        alert('任务已复制并暂停，请点击开始以加入队列。');
+                    });
+                },
+                retryTask(id) {
+                    axios.post(`/api/tasks/${id}/retry`).then(_ => {
+                        this.loadData();
+                        alert('任务已重新加入队列。');
+                    });
+                },
+                startTask(id) {
+                    axios.post(`/api/tasks/${id}/start`).then(_ => {
+                        this.loadData();
+                    });
                 },
                 formatTime(t) {
                     if(!t) return '-';
@@ -411,12 +500,14 @@ logger = logging.getLogger("AutoTrainer")
 # ==============================================================================
 Base = declarative_base()
 
+# [修改点] 增加了 PAUSED 状态
 class TaskStatus(str, Enum):
     PENDING = "pending"   # 排队中
     RUNNING = "running"   # 运行中
     COMPLETED = "completed" # 完成
     FAILED = "failed"     # 失败
     STOPPED = "stopped"   # 人工停止
+    PAUSED = "paused"     # 暂停 (等待手动开始)
 
 class Task(Base):
     __tablename__ = "tasks"
@@ -429,6 +520,8 @@ class Task(Base):
     # 配置
     file_swaps = Column(JSON)         # [{"source": "...", "target": "..."}, ...]
     gpu_config = Column(JSON)         # {"min_gpus": 1, "max_gpus": 8}
+    artifact_dir = Column(String, nullable=True)     # [新增] 产物目录
+    artifact_pattern = Column(String, nullable=True) # [新增] 产物匹配模式
     
     # 状态
     status = Column(String, default=TaskStatus.PENDING)
@@ -641,6 +734,7 @@ class TrainingWorker:
     def _check_queue(self):
         db = SessionLocal()
         try:
+            # [修改点] 显式忽略 PAUSED 状态的任务，只获取 PENDING
             task = db.query(Task).filter(Task.status == TaskStatus.PENDING).order_by(Task.created_at).first()
             if not task: return
 
@@ -656,7 +750,8 @@ class TrainingWorker:
             db.close()
 
     def _execute_task(self, task_id, gpu_indices, db_session):
-        task = db_session.query(Task).get(task_id)
+        # [修改点] 修复 LegacyAPIWarning: .query(Task).get() -> .get(Task, id)
+        task = db_session.get(Task, task_id)
         task.status = TaskStatus.RUNNING
         task.started_at = datetime.datetime.now()
         self.current_task_id = task.id
@@ -673,7 +768,6 @@ class TrainingWorker:
         env = os.environ.copy()
         env["CUDA_VISIBLE_DEVICES"] = cuda_str
         env["AUTOTRAINER_RUNNING"] = "true" 
-        # [修改点] 将任务名称注入环境变量，供 Code A 读取
         env["AUTOTRAINER_TASK_NAME"] = str(task.name)
         env["AUTOTRAINER_TASK_ID"] = str(task.id)
         
@@ -685,6 +779,9 @@ class TrainingWorker:
         oom_detected = False
         log_buffer_for_email = []
         
+        # [关键修复] 提前初始化 backups，防止 finally 中 UnboundLocalError
+        backups = {} 
+
         try:
             if task.file_swaps:
                 backups = FileManager.apply_swaps(task.file_swaps)
@@ -896,6 +993,8 @@ async def create_task(
     min_gpus: int = Form(1),
     max_gpus: int = Form(8),
     retry_count: int = Form(1),
+    artifact_dir: str = Form(""),
+    artifact_pattern: str = Form(""),
     swaps_json: str = Form("[]")
 ):
     try:
@@ -912,6 +1011,8 @@ async def create_task(
             file_swaps=swaps,
             gpu_config={"min_gpus": min_gpus, "max_gpus": max_gpus},
             max_retries=retry_count,
+            artifact_dir=artifact_dir,
+            artifact_pattern=artifact_pattern,
             status=TaskStatus.PENDING
         )
         db.add(new_task)
@@ -920,11 +1021,137 @@ async def create_task(
         db.close()
     return {"msg": "Task created"}
 
+# [新增 API] 编辑更新任务
+@app.post("/api/tasks/{tid}/update")
+async def update_task(
+    tid: int,
+    name: str = Form(...),
+    command: str = Form(...),
+    working_dir: str = Form(...),
+    min_gpus: int = Form(1),
+    max_gpus: int = Form(8),
+    retry_count: int = Form(1),
+    artifact_dir: str = Form(""),
+    artifact_pattern: str = Form(""),
+    swaps_json: str = Form("[]")
+):
+    try:
+        swaps = json.loads(swaps_json)
+    except:
+        return JSONResponse(status_code=400, content={"msg": "Invalid JSON swaps"})
+        
+    db = SessionLocal()
+    try:
+        # [修改点] 修复 LegacyAPIWarning
+        task = db.get(Task, tid)
+        if not task:
+            return JSONResponse(status_code=404, content={"msg": "Not found"})
+        
+        if task.status == TaskStatus.RUNNING:
+            return JSONResponse(status_code=400, content={"msg": "Cannot edit running task"})
+
+        # 更新基本字段
+        task.name = name
+        task.command = command
+        task.working_dir = working_dir
+        task.file_swaps = swaps
+        task.gpu_config = {"min_gpus": min_gpus, "max_gpus": max_gpus}
+        task.max_retries = retry_count
+        task.artifact_dir = artifact_dir
+        task.artifact_pattern = artifact_pattern
+        
+        # 如果是已完成/失败/停止的任务，编辑后重置为 Pending
+        if task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.STOPPED]:
+            task.status = TaskStatus.PENDING
+            task.started_at = None
+            task.finished_at = None
+            task.exit_code = None
+            task.log_file_path = None
+            task.retry_count = 0
+            task.error_msg = None
+            
+        db.commit()
+    finally:
+        db.close()
+    return {"msg": "Task updated"}
+
+# [新增 API] 复制任务
+@app.post("/api/tasks/{tid}/copy")
+def copy_task(tid: int):
+    db = SessionLocal()
+    try:
+        # [修改点] 修复 LegacyAPIWarning
+        src_task = db.get(Task, tid)
+        if not src_task:
+            return JSONResponse(status_code=404, content={"msg": "Not found"})
+        
+        new_task = Task(
+            name=f"{src_task.name} (Copy)",
+            command=src_task.command,
+            working_dir=src_task.working_dir,
+            file_swaps=src_task.file_swaps,
+            gpu_config=src_task.gpu_config,
+            max_retries=src_task.max_retries,
+            artifact_dir=src_task.artifact_dir,
+            artifact_pattern=src_task.artifact_pattern,
+            # 复制后设为暂停
+            status=TaskStatus.PAUSED
+        )
+        db.add(new_task)
+        db.commit()
+    finally:
+        db.close()
+    return {"msg": "Copied"}
+
+# [新增 API] 重试任务
+@app.post("/api/tasks/{tid}/retry")
+def retry_task(tid: int):
+    db = SessionLocal()
+    try:
+        # [修改点] 修复 LegacyAPIWarning
+        task = db.get(Task, tid)
+        if not task:
+            return JSONResponse(status_code=404, content={"msg": "Not found"})
+        
+        if task.status not in [TaskStatus.FAILED, TaskStatus.COMPLETED, TaskStatus.STOPPED]:
+            return JSONResponse(status_code=400, content={"msg": "Can only retry finished tasks"})
+        
+        task.status = TaskStatus.PENDING
+        task.started_at = None
+        task.finished_at = None
+        task.exit_code = None
+        task.retry_count = 0
+        task.log_file_path = None
+        task.error_msg = None
+        
+        db.commit()
+    finally:
+        db.close()
+    return {"msg": "Retrying"}
+
+# [新增 API] 开始任务 (从暂停恢复)
+@app.post("/api/tasks/{tid}/start")
+def start_task(tid: int):
+    db = SessionLocal()
+    try:
+        # [修改点] 修复 LegacyAPIWarning
+        task = db.get(Task, tid)
+        if not task:
+            return JSONResponse(status_code=404, content={"msg": "Not found"})
+        
+        if task.status == TaskStatus.PAUSED:
+            task.status = TaskStatus.PENDING
+            db.commit()
+    finally:
+        db.close()
+    return {"msg": "Started"}
+
 @app.post("/api/tasks/{tid}/stop")
 def stop_task(tid: int):
     db = SessionLocal()
     try:
-        task = db.query(Task).get(tid)
+        # [修改点] 修复 LegacyAPIWarning
+        task = db.get(Task, tid)
         if not task:
             return JSONResponse(status_code=404, content={"msg": "Not found"})
         
@@ -946,7 +1173,8 @@ def stop_task(tid: int):
 def delete_task(tid: int):
     db = SessionLocal()
     try:
-        task = db.query(Task).get(tid)
+        # [修改点] 修复 LegacyAPIWarning
+        task = db.get(Task, tid)
         if task:
             if task.status == TaskStatus.RUNNING:
                 if worker.current_task_id == tid:

@@ -1,0 +1,430 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoTrainer 控制台</title>
+    <!-- 使用 jsDelivr 加载依赖 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.3.4/dist/axios.min.js"></script>
+    <style>
+        [v-cloak] { display: none; } /* 防止 Vue 加载前显示花括号 */
+        body { background-color: #f4f6f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .card { border: none; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border-radius: 8px; }
+        .status-badge { min-width: 80px; display: inline-block; text-align: center; }
+        
+        /* 状态配色 */
+        .status-running { background-color: #e3f2fd; color: #0d6efd; border: 1px solid #0d6efd; }
+        .status-pending { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+        .status-completed { background-color: #d1e7dd; color: #0f5132; border: 1px solid #badbcc; }
+        .status-failed { background-color: #f8d7da; color: #842029; border: 1px solid #f5c6cb; }
+        .status-stopped { background-color: #e2e3e5; color: #41464b; border: 1px solid #d3d6d8; }
+        /* [新增] 暂停状态样式 */
+        .status-paused { background-color: #f8f9fa; color: #6c757d; border: 1px solid #dee2e6; border-style: dashed; }
+
+        /* [关键修复] 自定义 Modal 样式，不依赖 Bootstrap JS */
+        .custom-modal-backdrop {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1050;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start; /* 防止长弹窗无法滚动 */
+            overflow-y: auto;
+            padding-top: 50px;
+            padding-bottom: 50px;
+        }
+        .custom-modal-content {
+            background: white;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 800px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            position: relative;
+            z-index: 1051;
+            margin: auto;
+        }
+        
+        .btn-group-xs > .btn, .btn-xs {
+            padding: .25rem .4rem;
+            font-size: .875rem;
+            line-height: 1.5;
+            border-radius: .2rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- v-cloak 确保 Vue 加载完成前不显示乱码 -->
+    <div id="app" class="container-fluid py-4 px-4" v-cloak>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2 class="fw-bold text-primary"><span style="color:#333">Auto</span>Trainer <small class="text-muted fs-6">Pro Edition</small></h2>
+            <button class="btn btn-primary btn-lg shadow-sm" @click="openModal(null)">
+                <span style="font-size: 1.1rem; font-weight: bold;">+ 新建训练任务</span>
+            </button>
+        </div>
+
+        <!-- 统计面板 -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-2">
+                <div class="card p-3 text-center">
+                    <div class="text-muted small">排队中 (Pending)</div>
+                    <div class="fs-2 fw-bold text-warning">{{ stats.pending }}</div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card p-3 text-center">
+                    <div class="text-muted small">运行中 (Running)</div>
+                    <div class="fs-2 fw-bold text-primary">{{ stats.running }}</div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card p-3 text-center">
+                    <div class="text-muted small">近30日完成</div>
+                    <div class="fs-2 fw-bold text-success">{{ stats.success_30d }}</div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card p-3 text-center">
+                    <div class="text-muted small">近30日失败</div>
+                    <div class="fs-2 fw-bold text-danger">{{ stats.failed_30d }}</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card p-3" style="height: 100%;">
+                    <div class="text-muted small mb-2">GPU 实时监控 (阈值: 2000MB)</div>
+                    <div class="row g-2" style="max-height: 160px; overflow-y: auto;">
+                        <div class="col-6" v-for="gpu in gpus" :key="gpu.id">
+                            <div class="border rounded p-1 small d-flex justify-content-between align-items-center" 
+                                 :class="gpu.is_free ? 'bg-light text-success' : 'bg-light text-danger'">
+                                <span>GPU {{gpu.id}}</span>
+                                <span>{{gpu.mem_used}}M / {{gpu.util}}%</span>
+                            </div>
+                        </div>
+                        <div v-if="gpus.length === 0" class="text-muted small text-center w-100 mt-2">
+                            未检测到 GPU 或 驱动未安装
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 任务列表 -->
+        <div class="row">
+            <div class="col-lg-12">
+                <div class="card">
+                    <div class="card-header bg-white py-3">
+                        <h5 class="mb-0">任务队列</h5>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th width="5%">ID</th>
+                                    <th width="20%">任务名称/命令</th>
+                                    <th width="10%">状态</th>
+                                    <th width="10%">配置</th>
+                                    <th width="15%">时间</th>
+                                    <th width="20%">详情</th>
+                                    <th width="20%">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="task in tasks" :key="task.id" :class="{'table-active': task.status === 'running'}">
+                                    <td>#{{ task.id }}</td>
+                                    <td>
+                                        <div class="fw-bold">{{ task.name }}</div>
+                                        <div class="text-muted small text-truncate" style="max-width: 250px;" :title="task.command">{{ task.command }}</div>
+                                    </td>
+                                    <td>
+                                        <span class="badge rounded-pill status-badge" :class="'status-' + task.status">
+                                            {{ task.status }}
+                                        </span>
+                                        <div v-if="task.status === 'running'" class="small text-primary mt-1">PID: {{ task.pid }}</div>
+                                    </td>
+                                    <td>
+                                        <div class="small">GPU: {{ task.gpu_config.min_gpus }}~{{ task.gpu_config.max_gpus }}</div>
+                                        <div v-if="task.retry_count > 0" class="small text-danger">Retry: {{task.retry_count}}</div>
+                                    </td>
+                                    <td class="small">
+                                        <div v-if="task.started_at">始: {{ formatTime(task.started_at) }}</div>
+                                        <div v-if="task.finished_at">终: {{ formatTime(task.finished_at) }}</div>
+                                        <div v-if="!task.started_at" class="text-muted">等待中...</div>
+                                    </td>
+                                    <td>
+                                        <div v-if="task.artifact_dir" class="small text-success mb-1" title="产物抓取开启">
+                                            📸 产物: {{ task.artifact_pattern || '*' }}
+                                        </div>
+                                        <div v-if="task.file_swaps && task.file_swaps.length > 0" class="small text-muted">
+                                            📄 {{ task.file_swaps.length }} 个文件替换
+                                        </div>
+                                        <div v-if="task.status==='failed' || task.status==='completed' || task.status==='stopped'" class="small">
+                                            Exit: {{ task.exit_code }}
+                                            <span v-if="task.log_file_path" class="ms-1" title="日志已保存">📝</span>
+                                        </div>
+                                        <div v-if="task.error_msg" class="text-danger small text-truncate" style="max-width: 200px;" :title="task.error_msg">
+                                            {{ task.error_msg }}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex flex-wrap gap-1">
+                                            <!-- 开始按钮 (仅 Paused) -->
+                                            <button v-if="task.status === 'paused'" class="btn btn-sm btn-success" @click="startTask(task.id)">
+                                                ▶ 开始
+                                            </button>
+
+                                            <!-- 停止按钮 (仅 Running/Pending) -->
+                                            <button v-if="task.status === 'running' || task.status === 'pending'" 
+                                                    class="btn btn-sm btn-outline-warning" @click="stopTask(task.id)">⏹ 停止</button>
+                                            
+                                            <!-- 编辑按钮 (非 Running) -->
+                                            <button v-if="task.status !== 'running'" class="btn btn-sm btn-outline-primary" @click="openModal(task)">
+                                                ✎ 编辑
+                                            </button>
+
+                                            <!-- 复制按钮 (所有) -->
+                                            <button class="btn btn-sm btn-outline-secondary" @click="copyTask(task.id)">
+                                                📋 复制
+                                            </button>
+
+                                            <!-- 重试按钮 (Failed/Completed/Stopped) -->
+                                            <button v-if="['failed', 'completed', 'stopped'].includes(task.status)" 
+                                                    class="btn btn-sm btn-outline-info" @click="retryTask(task.id)">
+                                                🔄 重试
+                                            </button>
+
+                                            <!-- 删除按钮 -->
+                                            <button class="btn btn-sm btn-outline-danger" @click="delTask(task.id)">🗑</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr v-if="tasks.length === 0">
+                                    <td colspan="7" class="text-center py-5 text-muted">
+                                        <h4>📭</h4>
+                                        <div>当前无任务，点击右上角新建</div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 新建/编辑任务弹窗 -->
+        <div class="custom-modal-backdrop" v-if="showModal" @click.self="showModal = false">
+            <div class="custom-modal-content">
+                <div class="modal-header p-3 border-bottom d-flex justify-content-between">
+                    <h5 class="modal-title mb-0">{{ editingId ? '编辑任务' : '创建新训练任务' }}</h5>
+                    <button type="button" class="btn-close" @click="showModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <form @submit.prevent="submitTask">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">任务名称 <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" v-model="form.name" required placeholder="例如: Baseline_V1">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">工作目录 (Git Root) <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" v-model="form.working_dir" required placeholder="/path/to/project">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">启动命令 <span class="text-danger">*</span></label>
+                            <div class="text-muted small mb-1">提示：支持 "conda activate env && python script.py" (Linux)</div>
+                            <textarea class="form-control font-monospace bg-light" v-model="form.command" rows="3" required placeholder="conda activate MyEnv && python train.py"></textarea>
+                        </div>
+
+                        <!-- 产物抓取配置 -->
+                        <div class="mb-3 p-3 bg-light border rounded">
+                            <label class="form-label fw-bold text-success">📸 结果产物自动发送 (Artifacts)</label>
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <input type="text" class="form-control" v-model="form.artifact_dir" placeholder="输出文件目录 (绝对路径, 留空则不抓取)">
+                                    <div class="form-text">产物目录</div>
+                                </div>
+                                <div class="col-md-4">
+                                    <input type="text" class="form-control" v-model="form.artifact_pattern" placeholder="文件名模式 (默认 *.jpg)">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row mb-3 border rounded mx-1 p-2">
+                            <div class="col-md-4">
+                                <label class="form-label">最小显卡数</label>
+                                <input type="number" class="form-control" v-model="form.min_gpus" min="1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">最大显卡数</label>
+                                <input type="number" class="form-control" v-model="form.max_gpus" min="1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">失败重试次数</label>
+                                <input type="number" class="form-control" v-model="form.retry_count" min="0" value="1">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label d-flex justify-content-between align-items-center">
+                                <span class="fw-bold">🧩 模块文件替换 (可选)</span>
+                                <button type="button" class="btn btn-sm btn-outline-primary" @click="addSwap">+ 添加替换对</button>
+                            </label>
+                            <div v-for="(swap, idx) in form.swaps" :key="idx" class="input-group mb-2">
+                                <span class="input-group-text bg-white">源</span>
+                                <input type="text" class="form-control" v-model="swap.source" placeholder="Source Path">
+                                <span class="input-group-text bg-white">➔ 目标</span>
+                                <input type="text" class="form-control" v-model="swap.target" placeholder="Target Path">
+                                <button type="button" class="btn btn-outline-danger" @click="form.swaps.splice(idx, 1)">×</button>
+                            </div>
+                            <div v-if="form.swaps.length === 0" class="text-muted small">无文件替换操作 (通常用于临时修改代码文件)</div>
+                        </div>
+
+                        <div class="modal-footer px-0 pb-0 pt-3 border-top">
+                            <button type="button" class="btn btn-secondary me-2" @click="showModal = false">取消</button>
+                            <button type="submit" class="btn btn-primary px-4">{{ editingId ? '保存更改' : '提交任务' }}</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        new Vue({
+            el: '#app',
+            data: {
+                stats: { pending: 0, running: 0, success_30d: 0, failed_30d: 0 },
+                tasks: [],
+                gpus: [],
+                gpu_threshold: 0,
+                showModal: false,
+                editingId: null, // 如果不为 null，表示正在编辑该 ID
+                form: {
+                    name: '',
+                    command: '',
+                    working_dir: '',
+                    min_gpus: 1,
+                    max_gpus: 8,
+                    retry_count: 1,
+                    artifact_dir: '',
+                    artifact_pattern: '',
+                    swaps: []
+                }
+            },
+            methods: {
+                loadData() {
+                    axios.get('/api/stats').then(res => {
+                        this.stats = res.data.stats;
+                        this.gpus = res.data.gpus;
+                        this.tasks = res.data.tasks;
+                    }).catch(console.error);
+                },
+                openModal(task) {
+                    if (task) {
+                        // 编辑模式
+                        if (['completed', 'failed', 'stopped'].includes(task.status)) {
+                            if (!confirm("编辑已完成或停止的任务将重新加入队列并重置状态，确定要继续吗？")) {
+                                return;
+                            }
+                        }
+                        this.editingId = task.id;
+                        this.form = {
+                            name: task.name,
+                            command: task.command,
+                            working_dir: task.working_dir,
+                            min_gpus: task.gpu_config.min_gpus,
+                            max_gpus: task.gpu_config.max_gpus,
+                            retry_count: task.max_retries,
+                            artifact_dir: task.artifact_dir || '',
+                            artifact_pattern: task.artifact_pattern || '',
+                            swaps: JSON.parse(JSON.stringify(task.file_swaps || []))
+                        };
+                    } else {
+                        // 新建模式
+                        this.editingId = null;
+                        this.form = {
+                            name: '',
+                            command: '',
+                            working_dir: this.form.working_dir || '.', 
+                            min_gpus: 1,
+                            max_gpus: 8,
+                            retry_count: 1,
+                            artifact_dir: '',
+                            artifact_pattern: '',
+                            swaps: []
+                        };
+                    }
+                    this.showModal = true;
+                },
+                addSwap() {
+                    this.form.swaps.push({source: '', target: ''});
+                },
+                submitTask() {
+                    const fd = new FormData();
+                    fd.append('name', this.form.name);
+                    fd.append('command', this.form.command);
+                    fd.append('working_dir', this.form.working_dir);
+                    fd.append('min_gpus', this.form.min_gpus);
+                    fd.append('max_gpus', this.form.max_gpus);
+                    fd.append('retry_count', this.form.retry_count);
+                    fd.append('artifact_dir', this.form.artifact_dir);
+                    fd.append('artifact_pattern', this.form.artifact_pattern);
+                    
+                    const validSwaps = this.form.swaps.filter(s => s.source && s.target);
+                    fd.append('swaps_json', JSON.stringify(validSwaps));
+
+                    let url = '/api/tasks/create';
+                    if (this.editingId) {
+                        url = `/api/tasks/${this.editingId}/update`;
+                    }
+
+                    axios.post(url, fd).then(res => {
+                        this.showModal = false;
+                        this.loadData();
+                        alert(this.editingId ? '任务已更新！' : '任务已加入队列！');
+                    }).catch(err => alert('操作失败: ' + (err.response?.data?.msg || err.message)));
+                },
+                stopTask(id) {
+                    if(!confirm('确定要停止该任务吗？')) return;
+                    axios.post(`/api/tasks/${id}/stop`).then(this.loadData);
+                },
+                delTask(id) {
+                    if(!confirm('确定要删除记录吗？')) return;
+                    axios.delete(`/api/tasks/${id}`).then(this.loadData);
+                },
+                copyTask(id) {
+                    axios.post(`/api/tasks/${id}/copy`).then(_ => {
+                        this.loadData();
+                        alert('任务已复制并暂停，请点击开始以加入队列。');
+                    });
+                },
+                retryTask(id) {
+                    axios.post(`/api/tasks/${id}/retry`).then(_ => {
+                        this.loadData();
+                        alert('任务已重新加入队列。');
+                    });
+                },
+                startTask(id) {
+                    axios.post(`/api/tasks/${id}/start`).then(_ => {
+                        this.loadData();
+                    });
+                },
+                formatTime(t) {
+                    if(!t) return '-';
+                    return new Date(t).toLocaleString('zh-CN', {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit'});
+                }
+            },
+            mounted() {
+                console.log("AutoTrainer Frontend Mounted.");
+                this.loadData();
+                setInterval(this.loadData, 3000); 
+            }
+        });
+    </script>
+</body>
+</html>
