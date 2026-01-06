@@ -781,6 +781,9 @@ class TrainingWorker:
         
         # [关键修复] 提前初始化 backups，防止 finally 中 UnboundLocalError
         backups = {} 
+        
+        # [关键修复] 附件列表初始化
+        attachments = [log_path]
 
         try:
             if task.file_swaps:
@@ -844,15 +847,17 @@ class TrainingWorker:
             task.exit_code = exit_code
             
             # === 产物扫描逻辑 ===
-            attachments = [log_path]
             if task.artifact_dir:
                 found_files = ArtifactCollector.collect(task.artifact_dir, task.artifact_pattern)
                 if found_files:
                     logger.info(f"Found artifacts: {found_files}")
+                    # [关键修复] 添加找到的文件到附件列表
                     attachments.extend(found_files)
             
             log_str = "".join(log_buffer[-300:])
             
+            # [关键修复] 将邮件发送逻辑移动到 finally 块中（with open 块之外）
+            # 此时 Log 文件已关闭并落盘，EminderClient 读取时不会读到空文件
             if exit_code == 0:
                 task.status = TaskStatus.COMPLETED
                 task.retry_count = 0
@@ -860,13 +865,13 @@ class TrainingWorker:
                 EminderClient.send_report(
                     f"任务成功: {task.name}",
                     f"Duration: {task.finished_at - task.started_at}\n\nLogs Tail:\n{log_str}",
-                    attachments=[log_path]
+                    attachments=attachments # [关键修复] 使用完整的附件列表
                 )
             elif task.status == TaskStatus.STOPPED:
                 EminderClient.send_report(
                     f"任务被手动停止: {task.name}",
                     f"User interrupted task.\n\nLogs Tail:\n{log_str}",
-                    attachments=[log_path]
+                    attachments=attachments
                 )
             else:
                 can_retry = task.retry_count < task.max_retries
@@ -878,7 +883,7 @@ class TrainingWorker:
                     EminderClient.send_report(
                         f"任务出现错误，正在重试 ({task.retry_count}/{task.max_retries}): {task.name}",
                         f"Detected Error/OOM. Re-queueing task.\nExit Code: {exit_code}\nOOM Detected: {oom_detected}\n\nLogs Tail:\n{log_str}",
-                        attachments=[log_path]
+                        attachments=attachments
                     )
                     logger.warning(f"Task {task.id} failed (code {exit_code}). Retrying {task.retry_count}/{task.max_retries}")
                 else:
@@ -886,7 +891,7 @@ class TrainingWorker:
                     EminderClient.send_report(
                         f"任务最终失败 (次数: {task.retry_count}): {task.name}",
                         f"Max retries reached.\nExit Code: {exit_code}\nOOM: {oom_detected}\n\nLogs Tail:\n{log_str}",
-                        attachments=[log_path]
+                        attachments=attachments
                     )
             
             db_session.commit()

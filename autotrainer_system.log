@@ -118,3 +118,42 @@ pip install python-multipart
 2026-01-06 16:04:03,192 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
 2026-01-06 16:04:03,200 - AutoTrainer - INFO - Sending email to Eminder: 任务成功: Baseline1 (Copy)
 2026-01-06 16:04:05,254 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:08:59,671 - AutoTrainer - INFO - AutoTrainer Worker Loop Started.
+2026-01-06 16:08:59,673 - AutoTrainer - INFO - Dashboard template initialized/updated.
+2026-01-06 16:09:04,710 - AutoTrainer - INFO - Start Task 2 'Baseline1 (Copy)': GPUs 0
+2026-01-06 16:09:04,711 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: Baseline1 (Copy)
+2026-01-06 16:09:08,371 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:09:08,404 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
+2026-01-06 16:09:08,412 - AutoTrainer - INFO - Sending email to Eminder: 任务成功: Baseline1 (Copy)
+2026-01-06 16:09:10,502 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:09:20,559 - AutoTrainer - INFO - Start Task 1 'Baseline1': GPUs 0
+2026-01-06 16:09:20,559 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: Baseline1
+2026-01-06 16:09:24,404 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:09:24,430 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
+2026-01-06 16:09:24,435 - AutoTrainer - INFO - Sending email to Eminder: 任务成功: Baseline1
+2026-01-06 16:09:26,498 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:11:26,783 - AutoTrainer - INFO - Start Task 2 'Baseline1 (Copy)': GPUs 0
+2026-01-06 16:11:26,784 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: Baseline1 (Copy)
+2026-01-06 16:11:30,468 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:11:30,770 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
+2026-01-06 16:11:30,771 - AutoTrainer - INFO - Sending email to Eminder: 任务出现错误，正在重试 (1/1): Baseline1 (Copy)
+2026-01-06 16:11:34,562 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:11:34,562 - AutoTrainer - WARNING - Task 2 failed (code 2). Retrying 1/1
+2026-01-06 16:11:39,639 - AutoTrainer - INFO - Start Task 2 'Baseline1 (Copy)': GPUs 0
+2026-01-06 16:11:39,640 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: Baseline1 (Copy)
+2026-01-06 16:11:43,398 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:11:43,595 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
+2026-01-06 16:11:43,596 - AutoTrainer - INFO - Sending email to Eminder: 任务最终失败 (次数: 1): Baseline1 (Copy)
+2026-01-06 16:11:47,313 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:12:22,447 - AutoTrainer - INFO - Start Task 2 'Baseline1 (Copy)': GPUs 0
+2026-01-06 16:12:22,448 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: Baseline1 (Copy)
+2026-01-06 16:12:26,337 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:12:38,935 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
+2026-01-06 16:12:38,940 - AutoTrainer - INFO - Sending email to Eminder: 任务成功: Baseline1 (Copy)
+2026-01-06 16:12:41,002 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:12:46,058 - AutoTrainer - INFO - Start Task 1 'Baseline1': GPUs 0
+2026-01-06 16:12:46,058 - AutoTrainer - INFO - Sending email to Eminder: 任务开始: Baseline1
+2026-01-06 16:12:49,761 - AutoTrainer - INFO - Email sent successfully.
+2026-01-06 16:12:49,823 - AutoTrainer - INFO - Found artifacts: ['D:\\Desktop\\Develop\\SelfProject\\AutoTrainer\\test\\mock2\\result.png']
+2026-01-06 16:12:49,829 - AutoTrainer - INFO - Sending email to Eminder: 任务成功: Baseline1
+2026-01-06 16:12:51,884 - AutoTrainer - INFO - Email sent successfully.
